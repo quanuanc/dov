@@ -1,6 +1,7 @@
 package dev.cheng.dovsender;
 
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.system.MemoryUtil;
@@ -11,10 +12,17 @@ public class GLRenderer {
     private final ProtocolConfig cfg;
     private long window;
     private int textureId;
+    private int targetDisplayIndex = -1; // -1 primary
+    private boolean vsync = false;
+    private boolean hideCursor = true;
 
     public GLRenderer(ProtocolConfig cfg) {
         this.cfg = cfg;
     }
+
+    public GLRenderer withTargetDisplay(int index) { this.targetDisplayIndex = index; return this; }
+    public GLRenderer withVsync(boolean enable) { this.vsync = enable; return this; }
+    public GLRenderer withHideCursor(boolean hide) { this.hideCursor = hide; return this; }
 
     public void init() {
         if (!GLFW.glfwInit()) throw new IllegalStateException("Unable to init GLFW");
@@ -22,14 +30,26 @@ public class GLRenderer {
         GLFW.glfwWindowHint(GLFW.GLFW_VISIBLE, GLFW.GLFW_TRUE);
         GLFW.glfwWindowHint(GLFW.GLFW_RESIZABLE, GLFW.GLFW_FALSE);
 
-        window = GLFW.glfwCreateWindow(cfg.width, cfg.height, "HDMI Sender - VideoTransferA", MemoryUtil.NULL,
-                MemoryUtil.NULL);
+        // Fullscreen on chosen monitor
+        long monitor = selectMonitor(targetDisplayIndex);
+        GLFWVidMode mode = GLFW.glfwGetVideoMode(monitor);
+        if (mode != null) {
+            // align color bits/refresh to monitor
+            GLFW.glfwWindowHint(GLFW.GLFW_RED_BITS, mode.redBits());
+            GLFW.glfwWindowHint(GLFW.GLFW_GREEN_BITS, mode.greenBits());
+            GLFW.glfwWindowHint(GLFW.GLFW_BLUE_BITS, mode.blueBits());
+            GLFW.glfwWindowHint(GLFW.GLFW_REFRESH_RATE, mode.refreshRate());
+        }
+
+        window = GLFW.glfwCreateWindow(cfg.width, cfg.height, "HDMI Sender - DOV", monitor, MemoryUtil.NULL);
         if (window == MemoryUtil.NULL) throw new RuntimeException("Failed to create GLFW window");
 
         // make context current
         GLFW.glfwMakeContextCurrent(window);
-        // disable vsync here; we will control frame timing via FrameRateController (optionally enable)
-        GLFW.glfwSwapInterval(0);
+        // hide cursor while window focused (optional)
+        if (hideCursor) GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_HIDDEN);
+        // vsync option
+        GLFW.glfwSwapInterval(vsync ? 1 : 0);
 
         GL.createCapabilities();
 
@@ -87,5 +107,14 @@ public class GLRenderer {
         GL11.glDeleteTextures(textureId);
         GLFW.glfwDestroyWindow(window);
         GLFW.glfwTerminate();
+    }
+
+    private long selectMonitor(int index) {
+        if (index < 0) return GLFW.glfwGetPrimaryMonitor();
+        var buf = GLFW.glfwGetMonitors();
+        if (buf == null || buf.remaining() == 0) return GLFW.glfwGetPrimaryMonitor();
+        int count = buf.remaining();
+        if (index >= count) index = count - 1;
+        return buf.get(index);
     }
 }

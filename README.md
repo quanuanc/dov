@@ -150,6 +150,24 @@ mvn -q -pl sender org.codehaus.mojo:exec-maven-plugin:3.5.0:java \
 
 ---
 
+## 使用 FFmpeg 手动采集为视频（推荐流程）
+
+在 macOS 上用 AVFoundation 列出设备并录制 1080p60 视频文件：
+
+- 列出设备：
+  - `ffmpeg -hide_banner -f avfoundation -list_devices true -i ""`
+  - 在输出中找到你的采集卡视频索引（假设为 `1`）。
+
+- 采集到 MP4（H.264）文件：
+  - `ffmpeg -hide_banner -f avfoundation -framerate 60 -video_size 1920x1080 -pixel_format bgr0 -i "1:none" -c:v libx264 -preset veryfast -crf 18 -tune zerolatency -y capture.mp4`
+
+- 可选：采集为无损/近无损（文件更大，鲁棒性更高）：
+  - `ffmpeg -hide_banner -f avfoundation -framerate 60 -video_size 1920x1080 -pixel_format bgr0 -i "1:none" -c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le -y capture.mov`
+
+注意：确保发送端输出与采集端分辨率/帧率一致（1920x1080@60）。如设备仅支持 30fps，发送端 `fps` 需降至 30，并以相同设置采集。
+
+---
+
 ## 显示与采集注意事项
 
 要想让“像素即数据”的方案可靠，链路上的任何缩放、色彩/动态范围调整都会引入误码。请尽量保证：
@@ -208,4 +226,3 @@ mvn -q -pl sender org.codehaus.mojo:exec-maven-plugin:3.5.0:java \
 ## 贡献
 
 欢迎就协议设计、鲁棒性编码、接收端实现提出建议或 PR。接收端计划优先实现：帧头结构、基础校验、无 FEC 的端到端打通，其后加入 RS 纠删码与更稳健的像素编码。
-
