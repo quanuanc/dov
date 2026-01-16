@@ -10,7 +10,6 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>protocol</module>
         <module>sender</module>
         <module>receiver</module>
     </modules>
