@@ -291,6 +291,8 @@ public class SenderController {
                     if (Constants.TAIL_FRAMES > 0 && remainingFrames <= Constants.TAIL_FRAMES) {
                         repeatTarget = Math.max(repeatTarget, Constants.TAIL_REPEAT);
                     }
+                } else {
+                    repeatTarget = Math.max(repeatTarget, Constants.RESEND_REPEAT);
                 }
                 progress = (int) (progressIndex * 100.0 / Math.max(progressTotal, 1));
                 if (sendMode == SendMode.RESEND) {

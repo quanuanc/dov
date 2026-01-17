@@ -68,6 +68,7 @@ public final class Constants {
     public static final int TARGET_FPS = readInt("dov.targetFps", 30); // 目标帧率
     public static final int START_REPEAT = 5;         // START 帧重复次数
     public static final int DATA_REPEAT = 1;          // DATA 帧重复次数
+    public static final int RESEND_REPEAT = readInt("dov.resendRepeat", 3); // 补发 DATA 帧重复次数
     public static final int EOF_REPEAT = 5;           // EOF 帧重复次数
     public static final int TAIL_FRAMES = readInt("dov.tailFrames", 5);   // 尾部加重帧数
     public static final int TAIL_REPEAT = readInt("dov.tailRepeat", 3);   // 尾部重复次数
@@ -79,6 +80,7 @@ public final class Constants {
     public static final int BLACK_THRESHOLD = 64;     // 黑色判定阈值
     public static final int WHITE_THRESHOLD = 192;    // 白色判定阈值
     public static final int CORNER_SEARCH_RANGE = 8;  // 角标搜索范围（像素）
+    public static final int PAYLOAD_RETRY_RANGE = readInt("dov.payloadRetryRange", 1); // 数据解码重试范围
 
     // === 接收参数 ===
     public static final int FRAME_TIMEOUT_MS = 10_000;     // 帧超时 (10s)
@@ -117,11 +119,17 @@ public final class Constants {
         if (TARGET_FPS <= 0) {
             throw new IllegalArgumentException("Invalid target FPS");
         }
+        if (RESEND_REPEAT < 1) {
+            throw new IllegalArgumentException("Invalid resend repeat");
+        }
         if (TAIL_FRAMES < 0 || TAIL_REPEAT < 1) {
             throw new IllegalArgumentException("Invalid tail repeat settings");
         }
         if (EOF_GRACE_MS < 0) {
             throw new IllegalArgumentException("Invalid EOF grace");
+        }
+        if (PAYLOAD_RETRY_RANGE < 0) {
+            throw new IllegalArgumentException("Invalid payload retry range");
         }
     }
 

@@ -81,7 +81,7 @@ public class FrameAnalyzer {
     public byte[] decodePayload(HeaderAnalysis analysis) {
         FrameHeader header = analysis.header();
         if (header.getFrameType() == FrameType.DATA) {
-            return codec.decodeDataWithCrc(analysis.image(), header.getDataLength(),
+            return decodeDataWithRetry(analysis.image(), header.getDataLength(),
                     analysis.offsetX(), analysis.offsetY());
         }
         if (header.getDataLength() > 0) {
@@ -89,6 +89,30 @@ public class FrameAnalyzer {
                     analysis.offsetX(), analysis.offsetY());
         }
         return new byte[0];
+    }
+
+    private byte[] decodeDataWithRetry(BufferedImage image, int dataLength, int offsetX, int offsetY) {
+        byte[] payload = codec.decodeDataWithCrc(image, dataLength, offsetX, offsetY);
+        if (payload != null || Constants.PAYLOAD_RETRY_RANGE <= 0) {
+            return payload;
+        }
+
+        int range = Constants.PAYLOAD_RETRY_RANGE;
+        for (int dy = -range; dy <= range; dy++) {
+            for (int dx = -range; dx <= range; dx++) {
+                if (dx == 0 && dy == 0) {
+                    continue;
+                }
+                payload = codec.decodeDataWithCrc(image, dataLength, offsetX + dx, offsetY + dy);
+                if (payload != null) {
+                    lastOffsetX = offsetX + dx;
+                    lastOffsetY = offsetY + dy;
+                    hasLastOffset = true;
+                    return payload;
+                }
+            }
+        }
+        return null;
     }
 
     public static record HeaderAnalysis(BufferedImage image, FrameHeader header, int offsetX, int offsetY) {
