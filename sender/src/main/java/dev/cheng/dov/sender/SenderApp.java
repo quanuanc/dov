@@ -29,6 +29,7 @@ import java.nio.file.Path;
  */
 public class SenderApp extends Application {
 
+    private Stage primaryStage;
     private SenderController controller;
     private ImageView frameView;
     private VBox controlPanel;
@@ -39,10 +40,16 @@ public class SenderApp extends Application {
     private Button selectFileButton;
     private Button cancelButton;
 
+    // 迷你进度条（显示在底部安全边距区域）
+    private HBox miniProgressBar;
+    private ProgressBar miniProgress;
+    private Label miniStatusLabel;
+
     private boolean controlPanelVisible = true;
 
     @Override
     public void start(Stage primaryStage) {
+        this.primaryStage = primaryStage;
         controller = new SenderController();
         controller.setStateListener(new ControllerListener());
 
@@ -55,10 +62,14 @@ public class SenderApp extends Application {
         // 创建控制面板
         controlPanel = createControlPanel(primaryStage);
 
+        // 创建迷你进度条
+        miniProgressBar = createMiniProgressBar();
+
         // 根布局
         StackPane root = new StackPane();
-        root.getChildren().addAll(frameView, controlPanel);
+        root.getChildren().addAll(frameView, miniProgressBar, controlPanel);
         StackPane.setAlignment(controlPanel, Pos.BOTTOM_CENTER);
+        StackPane.setAlignment(miniProgressBar, Pos.BOTTOM_CENTER);
 
         // 创建场景
         Scene scene = new Scene(root, Constants.FRAME_WIDTH, Constants.FRAME_HEIGHT);
@@ -138,6 +149,31 @@ public class SenderApp extends Application {
     }
 
     /**
+     * 创建迷你进度条（显示在底部安全边距区域）
+     */
+    private HBox createMiniProgressBar() {
+        HBox bar = new HBox(10);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setPadding(new Insets(0, 16, 0, 16));
+        bar.setPrefHeight(16);
+        bar.setMaxHeight(16);
+        bar.setStyle("-fx-background-color: rgba(0, 0, 0, 0.8);");
+
+        miniProgress = new ProgressBar(0);
+        miniProgress.setPrefWidth(300);
+        miniProgress.setPrefHeight(12);
+
+        miniStatusLabel = new Label("");
+        miniStatusLabel.setTextFill(Color.WHITE);
+        miniStatusLabel.setStyle("-fx-font-size: 11px;");
+
+        bar.getChildren().addAll(miniProgress, miniStatusLabel);
+        bar.setVisible(false);
+
+        return bar;
+    }
+
+    /**
      * 切换控制面板显示
      */
     private void toggleControlPanel() {
@@ -164,7 +200,22 @@ public class SenderApp extends Application {
      */
     private void exitApp() {
         controller.stop();
-        Platform.exit();
+
+        // 先退出全屏模式，避免 macOS 上 JavaFX 关闭全屏窗口时崩溃
+        if (primaryStage.isFullScreen()) {
+            primaryStage.setFullScreen(false);
+            // 延迟退出，给系统时间处理全屏退出
+            new Thread(() -> {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                Platform.runLater(Platform::exit);
+            }).start();
+        } else {
+            Platform.exit();
+        }
     }
 
     /**
@@ -212,6 +263,11 @@ public class SenderApp extends Application {
                     selectFileButton.setDisable(true);
                     cancelButton.setDisable(false);
                     progressBar.setVisible(true);
+                    // 自动隐藏控制面板，显示迷你进度条
+                    if (controlPanelVisible) {
+                        toggleControlPanel();
+                    }
+                    miniProgressBar.setVisible(true);
                     break;
             }
         }
@@ -239,12 +295,20 @@ public class SenderApp extends Application {
         public void onSendProgress(String status, int percent, int currentFrame, int totalFrames) {
             progressBar.setProgress(percent / 100.0);
             progressLabel.setText(status);
+            // 同步更新迷你进度条
+            miniProgress.setProgress(percent / 100.0);
+            miniStatusLabel.setText(status);
         }
 
         @Override
         public void onSendComplete() {
             progressLabel.setText("发送完成!");
             fileLabel.setText("未选择文件");
+            // 隐藏迷你进度条，恢复控制面板
+            miniProgressBar.setVisible(false);
+            if (!controlPanelVisible) {
+                toggleControlPanel();
+            }
         }
 
         @Override

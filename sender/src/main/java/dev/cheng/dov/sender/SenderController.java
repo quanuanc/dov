@@ -61,6 +61,15 @@ public class SenderController {
     public void stop() {
         stopFrameTask();
         scheduler.shutdown();
+        try {
+            // 等待调度器完全停止，避免在窗口关闭后还有任务访问 UI
+            if (!scheduler.awaitTermination(500, TimeUnit.MILLISECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
