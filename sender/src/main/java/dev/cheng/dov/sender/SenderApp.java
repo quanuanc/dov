@@ -49,7 +49,6 @@ public class SenderApp extends Application {
     private Label fileLabel;
     private Button selectFileButton;
     private Button selectFolderButton;
-    private Button startButton;
     private Button cancelButton;
     private Button resendButton;
     private TextField resendField;
@@ -101,6 +100,7 @@ public class SenderApp extends Application {
         primaryStage.setOnCloseRequest(e -> exitApp());
 
         primaryStage.show();
+        moveToSecondScreenIfAvailable();
 
         // 启动控制器
         controller.start();
@@ -140,10 +140,6 @@ public class SenderApp extends Application {
         selectFolderButton = new Button("选择文件夹");
         selectFolderButton.setOnAction(e -> selectFolder(stage));
 
-        startButton = new Button("开始发送");
-        startButton.setOnAction(e -> controller.beginSending());
-        startButton.setDisable(true);
-
         cancelButton = new Button("取消");
         cancelButton.setOnAction(e -> controller.cancel());
         cancelButton.setDisable(true);
@@ -153,7 +149,7 @@ public class SenderApp extends Application {
 
         HBox buttonBox = new HBox(10);
         buttonBox.setAlignment(Pos.CENTER);
-        buttonBox.getChildren().addAll(selectFileButton, selectFolderButton, startButton, cancelButton, exitButton);
+        buttonBox.getChildren().addAll(selectFileButton, selectFolderButton, cancelButton, exitButton);
 
         panel.getChildren().addAll(statusLabel, fileLabel, resendBox, screenBox, buttonBox);
 
@@ -266,6 +262,17 @@ public class SenderApp extends Application {
 
         // 重新进入全屏
         Platform.runLater(() -> stage.setFullScreen(true));
+    }
+
+    private void moveToSecondScreenIfAvailable() {
+        var screens = Screen.getScreens();
+        if (screens.size() < 2) {
+            return;
+        }
+        Platform.runLater(() -> {
+            screenSelector.getSelectionModel().select(1);
+            moveToSelectedScreen(primaryStage);
+        });
     }
 
     /**
@@ -409,7 +416,6 @@ public class SenderApp extends Application {
                 case IDLE:
                     selectFileButton.setDisable(false);
                     selectFolderButton.setDisable(false);
-                    startButton.setDisable(true);
                     cancelButton.setDisable(true);
                     resendButton.setDisable(true);
                     resendField.setDisable(true);
@@ -422,7 +428,6 @@ public class SenderApp extends Application {
                 case PREPARING:
                     selectFileButton.setDisable(true);
                     selectFolderButton.setDisable(true);
-                    startButton.setDisable(true);
                     cancelButton.setDisable(true);
                     resendButton.setDisable(true);
                     resendField.setDisable(true);
@@ -432,7 +437,6 @@ public class SenderApp extends Application {
                 case READY:
                     selectFileButton.setDisable(true);
                     selectFolderButton.setDisable(true);
-                    startButton.setDisable(false);
                     cancelButton.setDisable(false);
                     resendButton.setDisable(true);
                     resendField.setDisable(true);
@@ -446,7 +450,6 @@ public class SenderApp extends Application {
                 case READY_RESEND:
                     selectFileButton.setDisable(true);
                     selectFolderButton.setDisable(true);
-                    startButton.setDisable(false);
                     cancelButton.setDisable(false);
                     resendButton.setDisable(false);
                     resendField.setDisable(false);
@@ -462,7 +465,6 @@ public class SenderApp extends Application {
                 case SENDING_EOF:
                     selectFileButton.setDisable(true);
                     selectFolderButton.setDisable(true);
-                    startButton.setDisable(true);
                     cancelButton.setDisable(false);
                     resendButton.setDisable(true);
                     resendField.setDisable(true);
