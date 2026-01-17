@@ -38,4 +38,6 @@ build/
 ### Mac OS ###
 .DS_Store
 /.idea/
-/test-files/
+test-files/
+*.log
+dependency-reduced-pom.xml
