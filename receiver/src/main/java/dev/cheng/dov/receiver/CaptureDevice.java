@@ -83,7 +83,7 @@ public class CaptureDevice {
             grabber = new OpenCVFrameGrabber(deviceId);
             grabber.setImageWidth(Constants.FRAME_WIDTH);
             grabber.setImageHeight(Constants.FRAME_HEIGHT);
-            grabber.setFrameRate(30);
+            grabber.setFrameRate(Constants.TARGET_FPS);
             grabber.start();
         }
     }

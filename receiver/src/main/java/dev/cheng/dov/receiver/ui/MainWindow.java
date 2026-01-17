@@ -38,6 +38,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
     private final JLabel fileLabel = new JLabel("当前文件: -");
     private final JLabel sizeLabel = new JLabel("文件大小: -");
     private final JLabel frameLabel = new JLabel("帧: 0/0  丢失: 0");
+    private final JLabel frameIndexLabel = new JLabel("最新帧序号: -");
+    private final JLabel missingFramesLabel = new JLabel("丢失帧序号: -");
     private final JLabel rateLabel = new JLabel("速率: -");
     private final JLabel etaLabel = new JLabel("剩余时间: -");
     private final JProgressBar progressBar = new JProgressBar(0, 100);
@@ -124,6 +126,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
         panel.add(fileInfoPanel);
         panel.add(progressBar);
         panel.add(frameLabel);
+        panel.add(frameIndexLabel);
+        panel.add(missingFramesLabel);
         panel.add(rateLabel);
         panel.add(etaLabel);
         panel.add(savePanel);
@@ -193,6 +197,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
                 fileLabel.setText("当前文件: -");
                 sizeLabel.setText("文件大小: -");
                 frameLabel.setText("帧: 0/0  丢失: 0");
+                frameIndexLabel.setText("最新帧序号: -");
+                missingFramesLabel.setText("丢失帧序号: -");
                 rateLabel.setText("速率: -");
                 etaLabel.setText("剩余时间: -");
                 progressBar.setValue(0);
@@ -202,6 +208,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
             fileLabel.setText("当前文件: " + fileName);
             sizeLabel.setText("文件大小: " + formatSize(fileSize));
             frameLabel.setText(String.format("帧: 0/%d  丢失: 0", totalFrames));
+            frameIndexLabel.setText("最新帧序号: -");
+            missingFramesLabel.setText("丢失帧序号: -");
             rateLabel.setText("速率: 0 B/s");
             etaLabel.setText("剩余时间: -");
             progressBar.setValue(0);
@@ -237,10 +245,16 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
     }
 
     @Override
+    public void onFrameIndex(int frameIndex) {
+        runOnEdt(() -> frameIndexLabel.setText("最新帧序号: " + frameIndex));
+    }
+
+    @Override
     public void onMissingFrames(List<Integer> missingFrames) {
         runOnEdt(() -> {
             missingCount = missingFrames.size();
             frameLabel.setText(String.format("帧: %d/%d  丢失: %d", currentReceivedFrames, currentTotalFrames, missingCount));
+            missingFramesLabel.setText("丢失帧序号: " + formatMissingFrames(missingFrames));
         });
     }
 
@@ -288,6 +302,25 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
             unitIndex++;
         }
         return new DecimalFormat("0.##").format(value) + " " + units[unitIndex];
+    }
+
+    private String formatMissingFrames(List<Integer> missingFrames) {
+        if (missingFrames == null || missingFrames.isEmpty()) {
+            return "-";
+        }
+        int limit = 12;
+        int count = Math.min(missingFrames.size(), limit);
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(missingFrames.get(i));
+        }
+        if (missingFrames.size() > limit) {
+            builder.append(" ...");
+        }
+        return builder.toString();
     }
 
     private void updateEta() {

@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -62,6 +63,10 @@ public class ReceiverController {
     private long receivedBytes;
     private long transferStartTime;
     private long lastRateUpdateTime;
+    private boolean eofReceived;
+    private long eofReceivedTime;
+    private int maxFrameIndexSeen = -1;
+    private final TreeSet<Integer> missingFrames = new TreeSet<>();
 
     private long lastFrameTime = 0;
     private long lastValidFrameTime = 0;
@@ -159,6 +164,7 @@ public class ReceiverController {
                 long now = System.currentTimeMillis();
                 if (image == null) {
                     checkTimeouts(now);
+                    maybeFinalize(now);
                     continue;
                 }
 
@@ -263,11 +269,17 @@ public class ReceiverController {
         receivedCount++;
         receivedBytes += payload.length;
         lastFrameTime = now;
+        boolean missingChanged = updateMissingFrames(index);
 
         if (listener != null) {
+            listener.onFrameIndex(index);
+            if (missingChanged) {
+                listener.onMissingFrames(new ArrayList<>(missingFrames));
+            }
             listener.onProgress(receivedCount, totalFrames);
             updateTransferRate(now, false);
         }
+        maybeFinalize(now);
     }
 
     private void handleEofFrame(byte[] data) {
@@ -281,10 +293,12 @@ public class ReceiverController {
         if (expectedSha256 != null && !Arrays.equals(expectedSha256, eofInfo.sha256())) {
             notifyError("EOF SHA-256 不匹配");
         }
-        setState(ReceiverState.ASSEMBLING, "正在重组文件");
-        if (assemblerExecutor != null) {
-            assemblerExecutor.submit(this::assembleFile);
+        if (!eofReceived) {
+            eofReceived = true;
+            eofReceivedTime = System.currentTimeMillis();
+            markTrailingMissingFrames();
         }
+        maybeFinalize(System.currentTimeMillis());
     }
 
     private void assembleFile() {
@@ -386,7 +400,11 @@ public class ReceiverController {
         this.receivedBytes = 0;
         this.transferStartTime = System.currentTimeMillis();
         this.lastRateUpdateTime = transferStartTime;
+        this.eofReceived = false;
+        this.eofReceivedTime = 0;
         this.lastFrameTime = System.currentTimeMillis();
+        this.maxFrameIndexSeen = -1;
+        this.missingFrames.clear();
 
         if (listener != null) {
             listener.onFileInfo(fileName, fileSize, totalFrames);
@@ -413,9 +431,13 @@ public class ReceiverController {
         expectedSha256 = null;
         transferFlags = 0;
         directoryTransfer = false;
+        eofReceived = false;
+        eofReceivedTime = 0;
         receivedBytes = 0;
         transferStartTime = 0;
         lastRateUpdateTime = 0;
+        maxFrameIndexSeen = -1;
+        missingFrames.clear();
         clearFrameBuffers();
         if (listener != null) {
             listener.onFileInfo(null, 0, 0);
@@ -428,6 +450,43 @@ public class ReceiverController {
         receivedFrames = null;
         frameDataMap = null;
         receivedCount = 0;
+    }
+
+    private boolean updateMissingFrames(int index) {
+        if (receivedFrames == null || totalFrames <= 0) {
+            return false;
+        }
+        boolean changed = false;
+        if (index > maxFrameIndexSeen + 1) {
+            for (int i = maxFrameIndexSeen + 1; i < index && i < receivedFrames.length; i++) {
+                if (!receivedFrames[i] && missingFrames.add(i)) {
+                    changed = true;
+                }
+            }
+        }
+        if (missingFrames.remove(index)) {
+            changed = true;
+        }
+        if (index > maxFrameIndexSeen) {
+            maxFrameIndexSeen = index;
+        }
+        return changed;
+    }
+
+    private void markTrailingMissingFrames() {
+        if (receivedFrames == null || totalFrames <= 0) {
+            return;
+        }
+        boolean changed = false;
+        int start = Math.max(maxFrameIndexSeen + 1, 0);
+        for (int i = start; i < totalFrames; i++) {
+            if (!receivedFrames[i] && missingFrames.add(i)) {
+                changed = true;
+            }
+        }
+        if (changed && listener != null) {
+            listener.onMissingFrames(new ArrayList<>(missingFrames));
+        }
     }
 
     private StartFrameInfo parseStartFrame(byte[] data) {
@@ -566,6 +625,8 @@ public class ReceiverController {
 
         void onTransferRate(double bytesPerSecond);
 
+        void onFrameIndex(int frameIndex);
+
         void onMissingFrames(List<Integer> missingFrames);
 
         void onCompleted(Path outputFile);
@@ -615,5 +676,20 @@ public class ReceiverController {
         double rate = receivedBytes * 1000.0 / elapsedMs;
         lastRateUpdateTime = now;
         listener.onTransferRate(rate);
+    }
+
+    private void maybeFinalize(long now) {
+        if (state != ReceiverState.RECEIVING || !eofReceived) {
+            return;
+        }
+        boolean complete = receivedCount >= totalFrames && totalFrames > 0;
+        boolean timeout = now - eofReceivedTime >= Constants.EOF_GRACE_MS;
+        if (!complete && !timeout) {
+            return;
+        }
+        setState(ReceiverState.ASSEMBLING, "正在重组文件");
+        if (assemblerExecutor != null) {
+            assemblerExecutor.submit(this::assembleFile);
+        }
     }
 }

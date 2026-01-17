@@ -219,11 +219,16 @@ public class SenderController {
                 repeatCount++;
 
                 int totalFrames = frameRenderer.getTotalFrames();
+                int remainingFrames = totalFrames - currentFrameIndex;
+                int repeatTarget = Constants.DATA_REPEAT;
+                if (Constants.TAIL_FRAMES > 0 && remainingFrames <= Constants.TAIL_FRAMES) {
+                    repeatTarget = Math.max(repeatTarget, Constants.TAIL_REPEAT);
+                }
                 progress = (int) ((currentFrameIndex + 1) * 100.0 / totalFrames);
                 status = String.format("发送数据帧 %d/%d (重复 %d/%d)",
-                        currentFrameIndex + 1, totalFrames, repeatCount, Constants.DATA_REPEAT);
+                        currentFrameIndex + 1, totalFrames, repeatCount, repeatTarget);
 
-                if (repeatCount >= Constants.DATA_REPEAT) {
+                if (repeatCount >= repeatTarget) {
                     repeatCount = 0;
                     currentFrameIndex++;
 
