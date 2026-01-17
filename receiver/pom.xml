@@ -7,7 +7,7 @@
     <parent>
         <groupId>dev.cheng</groupId>
         <artifactId>dov</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>1.0</version>
     </parent>
 
     <artifactId>receiver</artifactId>
@@ -17,7 +17,7 @@
         <dependency>
             <groupId>dev.cheng</groupId>
             <artifactId>protocol</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>${project.version}</version>
         </dependency>
 
         <!-- JavaCV (OpenCV) -->
