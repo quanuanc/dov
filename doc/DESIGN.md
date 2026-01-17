@@ -7,7 +7,7 @@ DOV (Data Over Video) 是一个通过 HDMI 信号传输文件的工具。
 ### 工作原理
 
 ```
-电脑 A (Sender)                          电脑 B (Receiver)
+电脑 A (Hermes)                          电脑 B (Argus)
 ┌─────────────┐                         ┌─────────────┐
 │  文件       │                         │  采集卡      │
 │    ↓        │      HDMI 线缆          │    ↓        │
@@ -40,12 +40,12 @@ DOV (Data Over Video) 是一个通过 HDMI 信号传输文件的工具。
 
 ### 2.2 单向通信的挑战
 
-HDMI 是单向传输，Sender 无法得知：
-- Receiver 是否已启动
-- Receiver 是否成功接收了某帧
+HDMI 是单向传输，Hermes 无法得知：
+- Argus 是否已启动
+- Argus 是否成功接收了某帧
 - 是否需要重传
 
-**解决思路**：Sender 不依赖反馈，通过冗余和状态帧来保证可靠性。
+**解决思路**：Hermes 不依赖反馈，通过冗余和状态帧来保证可靠性。
 
 ---
 
@@ -157,7 +157,7 @@ HDMI 是单向传输，Sender 无法得知：
 
 | 类型 | 值 | 用途 | 发送策略 |
 |------|-----|------|----------|
-| IDLE | 0x00 | Sender 空闲状态 | 持续循环显示 |
+| IDLE | 0x00 | Hermes 空闲状态 | 持续循环显示 |
 | START | 0x01 | 传输开始，携带文件元信息 | 重复 5 次 |
 | DATA | 0x02 | 数据帧 | 每帧重复 3 次 |
 | EOF | 0x03 | 传输结束 | 重复 5 次 |
@@ -211,7 +211,7 @@ N+45  4     传输参数
 ### 5.3 传输时序
 
 ```
-Receiver                                      Sender
+Argus                                      Hermes
    │                                            │
    │ 启动，进入扫描状态                           │
    │ ◄──────────────────────────────────────────┤ (无信号)
@@ -244,7 +244,7 @@ Receiver                                      Sender
 
 ## 6. 状态机
 
-### 6.1 Sender 状态机
+### 6.1 Hermes 状态机
 
 ```
                     ┌─────────────────┐
@@ -280,7 +280,7 @@ Receiver                                      Sender
          └──────────────────┴──────────────────────────┘
 ```
 
-### 6.2 Receiver 状态机
+### 6.2 Argus 状态机
 
 ```
                     ┌─────────────────┐
@@ -360,8 +360,8 @@ EOF 后检查：
 
 | 场景 | 处理方式 |
 |------|----------|
-| Receiver 中途启动（错过 START） | 显示警告，等待下一个 START 帧 |
-| Sender 中途重启 | Receiver 收到新 START，丢弃当前数据，重新开始 |
+| Argus 中途启动（错过 START） | 显示警告，等待下一个 START 帧 |
+| Hermes 中途重启 | Argus 收到新 START，丢弃当前数据，重新开始 |
 | 持续丢帧 | EOF 后报告缺失帧列表 |
 | 长时间无有效帧 | 超时（30秒）后回到 SCANNING 状态 |
 | 校验失败 | 报告错误，显示期望和实际的 SHA-256 |
@@ -370,7 +370,7 @@ EOF 后检查：
 
 ## 9. UI 设计
 
-### 9.1 Sender UI（JavaFX 全屏）
+### 9.1 Hermes UI（JavaFX 全屏）
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -395,11 +395,11 @@ EOF 后检查：
   Q     - 退出程序
 ```
 
-### 9.2 Receiver UI（普通窗口）
+### 9.2 Argus UI（普通窗口）
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  DOV Receiver                                        [─][□][×]│
+│  DOV Argus                                        [─][□][×]│
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  采集设备: [USB Video ▼]  [刷新]                             │
@@ -449,7 +449,7 @@ dov/
 │           ├── FileChunker.java    # 文件分块
 │           └── FileAssembler.java  # 文件重组
 │
-├── sender/                 # 发送端模块
+├── hermes/                 # 发送端模块
 │   ├── pom.xml
 │   └── src/main/java/dev/cheng/dov/sender/
 │       ├── SenderApp.java          # JavaFX 主程序
@@ -459,7 +459,7 @@ dov/
 │       └── ui/
 │           └── ControlPanel.java   # 控制面板组件
 │
-└── receiver/               # 接收端模块
+└── argus/                  # 接收端模块
     ├── pom.xml
     └── src/main/java/dev/cheng/dov/receiver/
         ├── ReceiverApp.java        # 主程序
@@ -519,7 +519,7 @@ public class TransferConfig {
 </dependencies>
 ```
 
-### 12.2 sender 模块
+### 12.2 Hermes 模块
 
 ```xml
 <dependencies>
@@ -543,7 +543,7 @@ public class TransferConfig {
 </dependencies>
 ```
 
-### 12.3 receiver 模块
+### 12.3 Argus 模块
 
 ```xml
 <dependencies>
@@ -570,8 +570,8 @@ public class TransferConfig {
 - [ ] 创建 protocol 模块基础结构
 - [ ] 实现 BlockCodec（8×8 块编解码）
 - [ ] 实现基础 FrameLayout
-- [ ] Sender：JavaFX 显示测试图案
-- [ ] Receiver：JavaCV 采集验证
+- [ ] Hermes：JavaFX 显示测试图案
+- [ ] Argus：JavaCV 采集验证
 
 ### Phase 2：核心功能
 - [ ] 实现完整帧格式（帧头、数据区、校验区）
@@ -586,6 +586,6 @@ public class TransferConfig {
 - [ ] 端到端文件传输测试
 
 ### Phase 4：UI 完善
-- [ ] Sender 控制面板
-- [ ] Receiver 完整 UI
+- [ ] Hermes 控制面板
+- [ ] Argus 完整 UI
 - [ ] 进度显示和错误处理

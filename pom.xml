@@ -11,8 +11,8 @@
 
     <modules>
         <module>protocol</module>
-        <module>sender</module>
-        <module>receiver</module>
+        <module>hermes</module>
+        <module>argus</module>
     </modules>
 
     <properties>

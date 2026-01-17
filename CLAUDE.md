@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 DOV (Data Over Video) 是一个通过 HDMI 信号传输文件的工具。工作原理：
-- **sender**: 将文件编码为视频信号，通过 HDMI 输出到屏幕
-- **receiver**: 通过采集卡捕获 HDMI 信号，将视频解码恢复为文件
+- **Hermes (sender)**: 将文件编码为视频信号，通过 HDMI 输出到屏幕
+- **Argus (receiver)**: 通过采集卡捕获 HDMI 信号，将视频解码恢复为文件
 
 目标硬件规格：1080P-60Hz 视频采集卡
 
@@ -23,26 +23,24 @@ mvn clean package
 mvn clean install
 
 # 只编译特定模块
-mvn clean compile -pl sender
-mvn clean compile -pl receiver
+mvn clean compile -pl hermes
+mvn clean compile -pl argus
 
 # 运行测试
 mvn test
 
 # 运行特定模块测试
-mvn test -pl sender
-mvn test -pl receiver
+mvn test -pl hermes
+mvn test -pl argus
 ```
 
 ## Architecture
 
 Maven 多模块项目结构：
 - **dov** (parent pom) - 父项目，定义 Java 21 编译器配置
-- **sender** - 发送端，依赖 protocol 模块
-- **receiver** - 接收端，依赖 protocol 模块
-- **protocol** (待创建) - 共享协议模块，被 sender 和 receiver 依赖
-
-注意：sender 和 receiver 的 pom.xml 中声明了对 `dev.cheng:protocol:1.0-SNAPSHOT` 的依赖，但该模块尚未在父 pom 中声明，需要创建。
+- **hermes (Hermes)** - 发送端，依赖 protocol 模块
+- **argus (Argus)** - 接收端，依赖 protocol 模块
+- **protocol** - 共享协议模块，被 Hermes 与 Argus 依赖
 
 ## Documentation
 
