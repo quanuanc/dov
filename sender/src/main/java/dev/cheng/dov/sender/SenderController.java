@@ -1,0 +1,318 @@
+package dev.cheng.dov.sender;
+
+import dev.cheng.dov.protocol.Constants;
+import javafx.application.Platform;
+import javafx.scene.image.Image;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Sender 控制器
+ * <p>
+ * 管理发送状态机和帧调度
+ */
+public class SenderController {
+
+    private final FrameRenderer frameRenderer;
+    private final ScheduledExecutorService scheduler;
+
+    private SenderState state = SenderState.IDLE;
+    private ScheduledFuture<?> frameTask;
+
+    // 发送计数器
+    private int repeatCount = 0;
+    private int currentFrameIndex = 0;
+
+    // UI 回调
+    private StateListener stateListener;
+
+    public SenderController() {
+        this.frameRenderer = new FrameRenderer();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "FrameScheduler");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    /**
+     * 设置状态监听器
+     */
+    public void setStateListener(StateListener listener) {
+        this.stateListener = listener;
+    }
+
+    /**
+     * 启动控制器
+     */
+    public void start() {
+        setState(SenderState.IDLE);
+        startIdleLoop();
+    }
+
+    /**
+     * 停止控制器
+     */
+    public void stop() {
+        stopFrameTask();
+        scheduler.shutdown();
+    }
+
+    /**
+     * 选择文件并开始准备
+     */
+    public void selectFile(Path filePath) {
+        if (state != SenderState.IDLE) {
+            return;
+        }
+
+        setState(SenderState.PREPARING);
+        stopFrameTask();
+
+        // 在后台线程准备文件
+        Thread prepareThread = new Thread(() -> {
+            try {
+                frameRenderer.prepareFile(filePath, new FrameRenderer.PrepareListener() {
+                    @Override
+                    public void onProgress(String message, int percent) {
+                        Platform.runLater(() -> {
+                            if (stateListener != null) {
+                                stateListener.onPrepareProgress(message, percent);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        Platform.runLater(() -> startSending());
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        Platform.runLater(() -> {
+                            if (stateListener != null) {
+                                stateListener.onError(error);
+                            }
+                            setState(SenderState.IDLE);
+                            startIdleLoop();
+                        });
+                    }
+                });
+            } catch (IOException e) {
+                Platform.runLater(() -> {
+                    if (stateListener != null) {
+                        stateListener.onError("读取文件失败: " + e.getMessage());
+                    }
+                    setState(SenderState.IDLE);
+                    startIdleLoop();
+                });
+            }
+        }, "PrepareThread");
+        prepareThread.setDaemon(true);
+        prepareThread.start();
+    }
+
+    /**
+     * 取消发送
+     */
+    public void cancel() {
+        if (state == SenderState.IDLE || state == SenderState.PREPARING) {
+            return;
+        }
+
+        stopFrameTask();
+        frameRenderer.clear();
+        setState(SenderState.IDLE);
+        startIdleLoop();
+    }
+
+    /**
+     * 开始发送流程
+     */
+    private void startSending() {
+        repeatCount = 0;
+        setState(SenderState.SENDING_START);
+        startSendingLoop();
+    }
+
+    /**
+     * 启动 IDLE 循环
+     */
+    private void startIdleLoop() {
+        stopFrameTask();
+        frameTask = scheduler.scheduleAtFixedRate(
+                this::onIdleTick,
+                0,
+                Constants.IDLE_INTERVAL_MS,
+                TimeUnit.MILLISECONDS
+        );
+    }
+
+    /**
+     * 启动发送循环
+     */
+    private void startSendingLoop() {
+        stopFrameTask();
+        frameTask = scheduler.scheduleAtFixedRate(
+                this::onSendTick,
+                0,
+                Constants.FRAME_INTERVAL_MS,
+                TimeUnit.MILLISECONDS
+        );
+    }
+
+    /**
+     * 停止帧任务
+     */
+    private void stopFrameTask() {
+        if (frameTask != null) {
+            frameTask.cancel(false);
+            frameTask = null;
+        }
+    }
+
+    /**
+     * IDLE 状态的帧回调
+     */
+    private void onIdleTick() {
+        Image frame = frameRenderer.getIdleFrame();
+        Platform.runLater(() -> {
+            if (stateListener != null) {
+                stateListener.onFrameUpdate(frame);
+            }
+        });
+    }
+
+    /**
+     * 发送状态的帧回调
+     */
+    private void onSendTick() {
+        Image frame = null;
+        int progress = 0;
+        String status = "";
+
+        switch (state) {
+            case SENDING_START:
+                frame = frameRenderer.getStartFrame();
+                repeatCount++;
+                status = String.format("发送开始帧 %d/%d", repeatCount, Constants.START_REPEAT);
+                progress = 0;
+
+                if (repeatCount >= Constants.START_REPEAT) {
+                    repeatCount = 0;
+                    currentFrameIndex = 0;
+                    setState(SenderState.SENDING_DATA);
+                }
+                break;
+
+            case SENDING_DATA:
+                frame = frameRenderer.getDataFrame(currentFrameIndex);
+                repeatCount++;
+
+                int totalFrames = frameRenderer.getTotalFrames();
+                progress = (int) ((currentFrameIndex + 1) * 100.0 / totalFrames);
+                status = String.format("发送数据帧 %d/%d (重复 %d/%d)",
+                        currentFrameIndex + 1, totalFrames, repeatCount, Constants.DATA_REPEAT);
+
+                if (repeatCount >= Constants.DATA_REPEAT) {
+                    repeatCount = 0;
+                    currentFrameIndex++;
+
+                    if (currentFrameIndex >= totalFrames) {
+                        setState(SenderState.SENDING_EOF);
+                    }
+                }
+                break;
+
+            case SENDING_EOF:
+                frame = frameRenderer.getEofFrame();
+                repeatCount++;
+                status = String.format("发送结束帧 %d/%d", repeatCount, Constants.EOF_REPEAT);
+                progress = 100;
+
+                if (repeatCount >= Constants.EOF_REPEAT) {
+                    // 发送完成
+                    Platform.runLater(() -> {
+                        if (stateListener != null) {
+                            stateListener.onSendComplete();
+                        }
+                        frameRenderer.clear();
+                        setState(SenderState.IDLE);
+                        startIdleLoop();
+                    });
+                    return;
+                }
+                break;
+
+            default:
+                return;
+        }
+
+        final Image finalFrame = frame;
+        final int finalProgress = progress;
+        final String finalStatus = status;
+
+        Platform.runLater(() -> {
+            if (stateListener != null) {
+                stateListener.onFrameUpdate(finalFrame);
+                stateListener.onSendProgress(finalStatus, finalProgress,
+                        currentFrameIndex, frameRenderer.getTotalFrames());
+            }
+        });
+    }
+
+    /**
+     * 设置状态
+     */
+    private void setState(SenderState newState) {
+        this.state = newState;
+        Platform.runLater(() -> {
+            if (stateListener != null) {
+                stateListener.onStateChanged(newState);
+            }
+        });
+    }
+
+    /**
+     * 获取当前状态
+     */
+    public SenderState getState() {
+        return state;
+    }
+
+    /**
+     * 获取文件名
+     */
+    public String getFileName() {
+        return frameRenderer.getFileName();
+    }
+
+    /**
+     * 获取文件大小
+     */
+    public long getFileSize() {
+        return frameRenderer.getFileSize();
+    }
+
+    /**
+     * 状态监听器接口
+     */
+    public interface StateListener {
+        void onStateChanged(SenderState state);
+
+        void onFrameUpdate(Image frame);
+
+        void onPrepareProgress(String message, int percent);
+
+        void onSendProgress(String status, int percent, int currentFrame, int totalFrames);
+
+        void onSendComplete();
+
+        void onError(String error);
+    }
+}
