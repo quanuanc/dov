@@ -14,10 +14,12 @@ import javafx.scene.control.ProgressBar;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.Cursor;
 import javafx.stage.FileChooser;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
@@ -33,6 +35,7 @@ import java.nio.file.Path;
 public class SenderApp extends Application {
 
     private Stage primaryStage;
+    private Scene scene;
     private SenderController controller;
     private ImageView frameView;
     private VBox controlPanel;
@@ -41,6 +44,7 @@ public class SenderApp extends Application {
     private ProgressBar progressBar;
     private Label progressLabel;
     private Button selectFileButton;
+    private Button startButton;
     private Button cancelButton;
     private ComboBox<String> screenSelector;
 
@@ -76,15 +80,17 @@ public class SenderApp extends Application {
         StackPane.setAlignment(miniProgressBar, Pos.BOTTOM_CENTER);
 
         // 创建场景
-        Scene scene = new Scene(root, Constants.FRAME_WIDTH, Constants.FRAME_HEIGHT);
+        scene = new Scene(root, Constants.FRAME_WIDTH, Constants.FRAME_HEIGHT);
         scene.setFill(Color.BLACK);
 
         // 键盘事件
-        scene.setOnKeyPressed(event -> {
+        scene.addEventHandler(KeyEvent.KEY_PRESSED, event -> {
             if (event.getCode() == KeyCode.ESCAPE) {
                 toggleControlPanel();
             } else if (event.getCode() == KeyCode.Q) {
                 exitApp();
+            } else if (event.getCode() == KeyCode.SPACE) {
+                controller.beginSending();
             }
         });
 
@@ -139,6 +145,10 @@ public class SenderApp extends Application {
         selectFileButton = new Button("选择文件");
         selectFileButton.setOnAction(e -> selectFile(stage));
 
+        startButton = new Button("开始发送");
+        startButton.setOnAction(e -> controller.beginSending());
+        startButton.setDisable(true);
+
         cancelButton = new Button("取消");
         cancelButton.setOnAction(e -> controller.cancel());
         cancelButton.setDisable(true);
@@ -148,7 +158,7 @@ public class SenderApp extends Application {
 
         HBox buttonBox = new HBox(10);
         buttonBox.setAlignment(Pos.CENTER);
-        buttonBox.getChildren().addAll(selectFileButton, cancelButton, exitButton);
+        buttonBox.getChildren().addAll(selectFileButton, startButton, cancelButton, exitButton);
 
         panel.getChildren().addAll(statusLabel, fileLabel, progressBar, progressLabel, screenBox, buttonBox);
 
@@ -335,26 +345,45 @@ public class SenderApp extends Application {
         @Override
         public void onStateChanged(SenderState state) {
             statusLabel.setText("状态: " + state.getDescription());
+            updateCursor(state);
+            progressLabel.setTextFill(Color.LIGHTGRAY);
 
             switch (state) {
                 case IDLE:
                     selectFileButton.setDisable(false);
+                    startButton.setDisable(true);
                     cancelButton.setDisable(true);
                     progressBar.setVisible(false);
                     progressLabel.setText("");
+                    miniProgressBar.setVisible(false);
                     break;
 
                 case PREPARING:
                     selectFileButton.setDisable(true);
+                    startButton.setDisable(true);
                     cancelButton.setDisable(true);
                     progressBar.setVisible(true);
                     progressBar.setProgress(0);
+                    break;
+
+                case READY:
+                    selectFileButton.setDisable(true);
+                    startButton.setDisable(false);
+                    cancelButton.setDisable(false);
+                    progressBar.setVisible(true);
+                    progressBar.setProgress(1);
+                    progressLabel.setText("准备完成，等待开始");
+                    miniProgressBar.setVisible(false);
+                    if (!controlPanelVisible) {
+                        toggleControlPanel();
+                    }
                     break;
 
                 case SENDING_START:
                 case SENDING_DATA:
                 case SENDING_EOF:
                     selectFileButton.setDisable(true);
+                    startButton.setDisable(true);
                     cancelButton.setDisable(false);
                     progressBar.setVisible(true);
                     // 自动隐藏控制面板，显示迷你进度条
@@ -409,6 +438,19 @@ public class SenderApp extends Application {
         public void onError(String error) {
             progressLabel.setText("错误: " + error);
             progressLabel.setTextFill(Color.RED);
+        }
+    }
+
+    private void updateCursor(SenderState state) {
+        if (scene == null) {
+            return;
+        }
+        if (state == SenderState.SENDING_START
+                || state == SenderState.SENDING_DATA
+                || state == SenderState.SENDING_EOF) {
+            scene.setCursor(Cursor.NONE);
+        } else {
+            scene.setCursor(Cursor.DEFAULT);
         }
     }
 

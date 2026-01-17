@@ -63,6 +63,12 @@ public final class Constants {
     // === 检测阈值 ===
     public static final int BLACK_THRESHOLD = 64;     // 黑色判定阈值
     public static final int WHITE_THRESHOLD = 192;    // 白色判定阈值
+    public static final int CORNER_SEARCH_RANGE = 8;  // 角标搜索范围（像素）
+
+    // === 接收参数 ===
+    public static final int FRAME_TIMEOUT_MS = 10_000;     // 帧超时 (10s)
+    public static final int CONNECTION_TIMEOUT_MS = 60_000; // 连接超时 (60s)
+    public static final int FRAME_QUEUE_SIZE = 10;          // 采集队列长度
 
     // === 颜色常量 ===
     public static final int COLOR_BLACK = 0xFF000000;

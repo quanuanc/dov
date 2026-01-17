@@ -40,4 +40,4 @@ build/
 /.idea/
 test-files/
 *.log
-/sender/dependency-reduced-pom.xml
+dependency-reduced-pom.xml

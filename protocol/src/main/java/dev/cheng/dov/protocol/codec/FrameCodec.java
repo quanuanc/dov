@@ -9,6 +9,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.zip.CRC32;
 
 /**
@@ -226,5 +227,87 @@ public class FrameCodec {
     public int getPayloadCapacity() {
         // 数据区容量减去 CRC32 的 4 字节
         return Constants.DATA_BYTES_PER_FRAME - 4;
+    }
+
+    /**
+     * 解码帧头
+     *
+     * @param image   源图像
+     * @param offsetX 水平偏移（像素）
+     * @param offsetY 垂直偏移（像素）
+     * @return FrameHeader，如果解码失败返回 null
+     */
+    public FrameHeader decodeHeader(BufferedImage image, int offsetX, int offsetY) {
+        int bitCount = Constants.HEADER_SIZE_BYTES * 8;
+        int[] bits = new int[bitCount];
+
+        for (int i = 0; i < bitCount; i++) {
+            int[] blockPos = FrameLayout.headerBitIndexToBlock(i);
+            int pixelX = Constants.CONTENT_START_X + blockPos[0] * Constants.BLOCK_SIZE + offsetX;
+            int pixelY = Constants.CONTENT_START_Y + blockPos[1] * Constants.BLOCK_SIZE + offsetY;
+            bits[i] = BlockCodec.decodeBlockAt(image, pixelX, pixelY);
+        }
+
+        byte[] headerBytes = BlockCodec.bitsToBytes(bits);
+        return FrameHeader.fromBytes(headerBytes);
+    }
+
+    /**
+     * 解码数据区（不包含 CRC 校验）
+     *
+     * @param image      源图像
+     * @param dataLength 数据长度（字节）
+     * @param offsetX    水平偏移（像素）
+     * @param offsetY    垂直偏移（像素）
+     * @return 数据字节数组，失败返回 null
+     */
+    public byte[] decodeData(BufferedImage image, int dataLength, int offsetX, int offsetY) {
+        return decodeBytes(image, dataLength, offsetX, offsetY);
+    }
+
+    /**
+     * 解码数据区并验证 CRC32
+     *
+     * @param image      源图像
+     * @param dataLength 数据长度（字节，不含 CRC）
+     * @param offsetX    水平偏移（像素）
+     * @param offsetY    垂直偏移（像素）
+     * @return 解码后的数据负载，CRC 校验失败返回 null
+     */
+    public byte[] decodeDataWithCrc(BufferedImage image, int dataLength, int offsetX, int offsetY) {
+        int totalLength = dataLength + 4;
+        byte[] raw = decodeBytes(image, totalLength, offsetX, offsetY);
+        if (raw == null || raw.length < totalLength) {
+            return null;
+        }
+
+        byte[] payload = Arrays.copyOf(raw, dataLength);
+        int expectedCrc = ByteBuffer.wrap(raw, dataLength, 4).getInt();
+
+        CRC32 crc = new CRC32();
+        crc.update(payload);
+        int actualCrc = (int) crc.getValue();
+        if (expectedCrc != actualCrc) {
+            return null;
+        }
+
+        return payload;
+    }
+
+    private byte[] decodeBytes(BufferedImage image, int byteLength, int offsetX, int offsetY) {
+        int maxBytes = Constants.DATA_BLOCKS_PER_FRAME / 8;
+        if (byteLength <= 0 || byteLength > maxBytes) {
+            return null;
+        }
+
+        int bitCount = byteLength * 8;
+        int[] bits = new int[bitCount];
+        for (int i = 0; i < bitCount; i++) {
+            int[] blockPos = FrameLayout.dataBitIndexToBlock(i);
+            int pixelX = Constants.CONTENT_START_X + blockPos[0] * Constants.BLOCK_SIZE + offsetX;
+            int pixelY = Constants.CONTENT_START_Y + blockPos[1] * Constants.BLOCK_SIZE + offsetY;
+            bits[i] = BlockCodec.decodeBlockAt(image, pixelX, pixelY);
+        }
+        return BlockCodec.bitsToBytes(bits);
     }
 }

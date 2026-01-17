@@ -16,6 +16,11 @@ public enum SenderState {
     PREPARING("准备中"),
 
     /**
+     * 准备完成，等待开始发送
+     */
+    READY("准备完成"),
+
+    /**
      * 发送 START 帧
      */
     SENDING_START("发送开始帧"),

@@ -46,18 +46,7 @@ public class BlockCodec {
     public static int decodeBlock(BufferedImage image, int blockX, int blockY) {
         int pixelX = blockX * Constants.BLOCK_SIZE;
         int pixelY = blockY * Constants.BLOCK_SIZE;
-
-        long sum = 0;
-        for (int dy = 0; dy < Constants.BLOCK_SIZE; dy++) {
-            for (int dx = 0; dx < Constants.BLOCK_SIZE; dx++) {
-                int rgb = image.getRGB(pixelX + dx, pixelY + dy);
-                int brightness = getBrightness(rgb);
-                sum += brightness;
-            }
-        }
-
-        int avg = (int) (sum / (Constants.BLOCK_SIZE * Constants.BLOCK_SIZE));
-        return (avg >= 128) ? 1 : 0;
+        return decodeBlockAt(image, pixelX, pixelY);
     }
 
     /**
@@ -68,6 +57,39 @@ public class BlockCodec {
         int g = (rgb >> 8) & 0xFF;
         int b = rgb & 0xFF;
         return (r + g + b) / 3;
+    }
+
+    /**
+     * 从图像解码一个块（像素坐标）
+     *
+     * @param image  源图像
+     * @param pixelX 块的像素 X 坐标
+     * @param pixelY 块的像素 Y 坐标
+     * @return 解码的位（0 或 1）
+     */
+    public static int decodeBlockAt(BufferedImage image, int pixelX, int pixelY) {
+        int startX = Math.max(0, pixelX);
+        int startY = Math.max(0, pixelY);
+        int endX = Math.min(image.getWidth(), pixelX + Constants.BLOCK_SIZE);
+        int endY = Math.min(image.getHeight(), pixelY + Constants.BLOCK_SIZE);
+
+        if (startX >= endX || startY >= endY) {
+            return 0;
+        }
+
+        long sum = 0;
+        int count = 0;
+        for (int y = startY; y < endY; y++) {
+            for (int x = startX; x < endX; x++) {
+                int rgb = image.getRGB(x, y);
+                int brightness = getBrightness(rgb);
+                sum += brightness;
+                count++;
+            }
+        }
+
+        int avg = (int) (sum / Math.max(count, 1));
+        return (avg >= 128) ? 1 : 0;
     }
 
     /**

@@ -98,7 +98,7 @@ public class SenderController {
 
                     @Override
                     public void onComplete() {
-                        Platform.runLater(() -> startSending());
+                        Platform.runLater(() -> enterReadyState());
                     }
 
                     @Override
@@ -127,6 +127,16 @@ public class SenderController {
     }
 
     /**
+     * 开始发送（准备完成后手动触发）
+     */
+    public void beginSending() {
+        if (state != SenderState.READY) {
+            return;
+        }
+        startSendingInternal();
+    }
+
+    /**
      * 取消发送
      */
     public void cancel() {
@@ -143,10 +153,18 @@ public class SenderController {
     /**
      * 开始发送流程
      */
-    private void startSending() {
+    private void startSendingInternal() {
         repeatCount = 0;
         setState(SenderState.SENDING_START);
         startSendingLoop();
+    }
+
+    /**
+     * 进入准备完成状态
+     */
+    private void enterReadyState() {
+        setState(SenderState.READY);
+        startIdleLoop();
     }
 
     /**
