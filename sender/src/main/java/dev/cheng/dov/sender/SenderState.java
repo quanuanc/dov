@@ -21,6 +21,11 @@ public enum SenderState {
     READY("准备完成"),
 
     /**
+     * 发送完成，可补发帧
+     */
+    READY_RESEND("可补发"),
+
+    /**
      * 发送 START 帧
      */
     SENDING_START("发送开始帧"),

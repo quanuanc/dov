@@ -211,6 +211,7 @@ public class ReceiverController {
                 }
                 break;
             case RECEIVING:
+            case WAITING_RESEND:
                 if (type == FrameType.DATA) {
                     handleDataFrame(analysis, now);
                 } else if (type == FrameType.EOF) {
@@ -304,11 +305,10 @@ public class ReceiverController {
     private void assembleFile() {
         List<Integer> missingFrames = collectMissingFrames();
         if (!missingFrames.isEmpty()) {
-            setState(ReceiverState.ERROR, "丢失帧: " + missingFrames.size());
+            setState(ReceiverState.WAITING_RESEND, "等待补帧: " + missingFrames.size());
             if (listener != null) {
                 listener.onMissingFrames(missingFrames);
             }
-            clearFrameBuffers();
             return;
         }
 
@@ -527,7 +527,8 @@ public class ReceiverController {
     }
 
     private void checkTimeouts(long now) {
-        if (state == ReceiverState.RECEIVING && now - lastFrameTime > Constants.FRAME_TIMEOUT_MS) {
+        if ((state == ReceiverState.RECEIVING || state == ReceiverState.WAITING_RESEND)
+                && now - lastFrameTime > Constants.FRAME_TIMEOUT_MS) {
             if (now - lastTimeoutWarning > Constants.FRAME_TIMEOUT_MS) {
                 lastTimeoutWarning = now;
                 notifyError("接收超时，继续等待...");
@@ -535,6 +536,7 @@ public class ReceiverController {
         }
 
         if (state != ReceiverState.STOPPED
+                && state != ReceiverState.WAITING_RESEND
                 && now - lastValidFrameTime > Constants.CONNECTION_TIMEOUT_MS) {
             resetReceivingData();
             setState(ReceiverState.SCANNING, "连接超时，重新扫描");
@@ -679,17 +681,23 @@ public class ReceiverController {
     }
 
     private void maybeFinalize(long now) {
-        if (state != ReceiverState.RECEIVING || !eofReceived) {
+        if ((state != ReceiverState.RECEIVING && state != ReceiverState.WAITING_RESEND) || !eofReceived) {
             return;
         }
         boolean complete = receivedCount >= totalFrames && totalFrames > 0;
-        boolean timeout = now - eofReceivedTime >= Constants.EOF_GRACE_MS;
-        if (!complete && !timeout) {
+        if (complete) {
+            setState(ReceiverState.ASSEMBLING, "正在重组文件");
+            if (assemblerExecutor != null) {
+                assemblerExecutor.submit(this::assembleFile);
+            }
             return;
         }
-        setState(ReceiverState.ASSEMBLING, "正在重组文件");
-        if (assemblerExecutor != null) {
-            assemblerExecutor.submit(this::assembleFile);
+        boolean timeout = now - eofReceivedTime >= Constants.EOF_GRACE_MS;
+        if (timeout && state != ReceiverState.WAITING_RESEND) {
+            setState(ReceiverState.WAITING_RESEND, "等待补帧: " + missingFrames.size());
+            if (listener != null) {
+                listener.onMissingFrames(new ArrayList<>(missingFrames));
+            }
         }
     }
 }

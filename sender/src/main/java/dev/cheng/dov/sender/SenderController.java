@@ -6,6 +6,8 @@ import javafx.scene.image.Image;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -23,10 +25,13 @@ public class SenderController {
 
     private SenderState state = SenderState.IDLE;
     private ScheduledFuture<?> frameTask;
+    private SendMode sendMode = SendMode.FULL;
 
     // 发送计数器
     private int repeatCount = 0;
     private int currentFrameIndex = 0;
+    private int resendPosition = 0;
+    private List<Integer> resendIndices = null;
 
     // UI 回调
     private StateListener stateListener;
@@ -70,6 +75,10 @@ public class SenderController {
             scheduler.shutdownNow();
             Thread.currentThread().interrupt();
         }
+        frameRenderer.clear();
+        resendIndices = null;
+        resendPosition = 0;
+        sendMode = SendMode.FULL;
     }
 
     /**
@@ -107,10 +116,44 @@ public class SenderController {
      * 开始发送（准备完成后手动触发）
      */
     public void beginSending() {
-        if (state != SenderState.READY) {
+        if (state != SenderState.READY && state != SenderState.READY_RESEND) {
             return;
         }
-        startSendingInternal();
+        startSendingInternal(SendMode.FULL);
+    }
+
+    /**
+     * 手动补发指定帧
+     */
+    public void beginResend(List<Integer> indices) {
+        if (state != SenderState.READY_RESEND) {
+            return;
+        }
+        int totalFrames = frameRenderer.getTotalFrames();
+        if (indices == null || indices.isEmpty() || totalFrames <= 0) {
+            if (stateListener != null) {
+                stateListener.onError("补发帧序号为空");
+            }
+            return;
+        }
+        List<Integer> valid = new ArrayList<>();
+        for (Integer index : indices) {
+            if (index == null) {
+                continue;
+            }
+            if (index >= 0 && index < totalFrames) {
+                valid.add(index);
+            }
+        }
+        if (valid.isEmpty()) {
+            if (stateListener != null) {
+                stateListener.onError("补发帧序号无效");
+            }
+            return;
+        }
+        this.resendIndices = valid;
+        this.resendPosition = 0;
+        startSendingInternal(SendMode.RESEND);
     }
 
     /**
@@ -123,6 +166,9 @@ public class SenderController {
 
         stopFrameTask();
         frameRenderer.clear();
+        resendIndices = null;
+        resendPosition = 0;
+        sendMode = SendMode.FULL;
         setState(SenderState.IDLE);
         startIdleLoop();
     }
@@ -130,8 +176,14 @@ public class SenderController {
     /**
      * 开始发送流程
      */
-    private void startSendingInternal() {
+    private void startSendingInternal(SendMode mode) {
+        this.sendMode = mode;
         repeatCount = 0;
+        currentFrameIndex = 0;
+        resendPosition = 0;
+        if (mode == SendMode.FULL) {
+            resendIndices = null;
+        }
         setState(SenderState.SENDING_START);
         startSendingLoop();
     }
@@ -215,25 +267,52 @@ public class SenderController {
                 break;
 
             case SENDING_DATA:
-                frame = frameRenderer.getDataFrame(currentFrameIndex);
+                int totalFrames = frameRenderer.getTotalFrames();
+                int frameIndex = currentFrameIndex;
+                int progressIndex = currentFrameIndex + 1;
+                int progressTotal = totalFrames;
+                if (sendMode == SendMode.RESEND) {
+                    if (resendIndices == null || resendIndices.isEmpty()) {
+                        setState(SenderState.READY_RESEND);
+                        startIdleLoop();
+                        return;
+                    }
+                    frameIndex = resendIndices.get(resendPosition);
+                    progressIndex = resendPosition + 1;
+                    progressTotal = resendIndices.size();
+                }
+
+                frame = frameRenderer.getDataFrame(frameIndex);
                 repeatCount++;
 
-                int totalFrames = frameRenderer.getTotalFrames();
-                int remainingFrames = totalFrames - currentFrameIndex;
                 int repeatTarget = Constants.DATA_REPEAT;
-                if (Constants.TAIL_FRAMES > 0 && remainingFrames <= Constants.TAIL_FRAMES) {
-                    repeatTarget = Math.max(repeatTarget, Constants.TAIL_REPEAT);
+                if (sendMode == SendMode.FULL) {
+                    int remainingFrames = totalFrames - currentFrameIndex;
+                    if (Constants.TAIL_FRAMES > 0 && remainingFrames <= Constants.TAIL_FRAMES) {
+                        repeatTarget = Math.max(repeatTarget, Constants.TAIL_REPEAT);
+                    }
                 }
-                progress = (int) ((currentFrameIndex + 1) * 100.0 / totalFrames);
-                status = String.format("发送数据帧 %d/%d (重复 %d/%d)",
-                        currentFrameIndex + 1, totalFrames, repeatCount, repeatTarget);
+                progress = (int) (progressIndex * 100.0 / Math.max(progressTotal, 1));
+                if (sendMode == SendMode.RESEND) {
+                    status = String.format("补发数据帧 %d/%d (帧 %d, 重复 %d/%d)",
+                            progressIndex, progressTotal, frameIndex, repeatCount, repeatTarget);
+                } else {
+                    status = String.format("发送数据帧 %d/%d (重复 %d/%d)",
+                            currentFrameIndex + 1, totalFrames, repeatCount, repeatTarget);
+                }
 
                 if (repeatCount >= repeatTarget) {
                     repeatCount = 0;
-                    currentFrameIndex++;
-
-                    if (currentFrameIndex >= totalFrames) {
-                        setState(SenderState.SENDING_EOF);
+                    if (sendMode == SendMode.RESEND) {
+                        resendPosition++;
+                        if (resendPosition >= resendIndices.size()) {
+                            setState(SenderState.SENDING_EOF);
+                        }
+                    } else {
+                        currentFrameIndex++;
+                        if (currentFrameIndex >= totalFrames) {
+                            setState(SenderState.SENDING_EOF);
+                        }
                     }
                 }
                 break;
@@ -250,8 +329,10 @@ public class SenderController {
                         if (stateListener != null) {
                             stateListener.onSendComplete();
                         }
-                        frameRenderer.clear();
-                        setState(SenderState.IDLE);
+                        resendIndices = null;
+                        resendPosition = 0;
+                        sendMode = SendMode.FULL;
+                        setState(SenderState.READY_RESEND);
                         startIdleLoop();
                     });
                     return;
@@ -269,8 +350,12 @@ public class SenderController {
         Platform.runLater(() -> {
             if (stateListener != null) {
                 stateListener.onFrameUpdate(finalFrame);
+                int progressCurrent = sendMode == SendMode.RESEND ? resendPosition : currentFrameIndex;
+                int progressTotal = sendMode == SendMode.RESEND
+                        ? (resendIndices == null ? 0 : resendIndices.size())
+                        : frameRenderer.getTotalFrames();
                 stateListener.onSendProgress(finalStatus, finalProgress,
-                        currentFrameIndex, frameRenderer.getTotalFrames());
+                        progressCurrent, progressTotal);
             }
         });
     }
@@ -359,6 +444,14 @@ public class SenderController {
         return frameRenderer.getFileSize();
     }
 
+    public int getTotalFrames() {
+        return frameRenderer.getTotalFrames();
+    }
+
+    private enum SendMode {
+        FULL,
+        RESEND
+    }
 
     /**
      * 状态监听器接口

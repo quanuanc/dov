@@ -8,6 +8,7 @@ public enum ReceiverState {
     SCANNING("扫描中"),
     CONNECTED("已连接"),
     RECEIVING("接收中"),
+    WAITING_RESEND("等待补帧"),
     ASSEMBLING("重组中"),
     COMPLETE("完成"),
     ERROR("错误");

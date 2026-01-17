@@ -11,6 +11,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
@@ -28,6 +29,9 @@ import javafx.util.Duration;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.TreeSet;
 
 /**
  * Sender 主程序
@@ -47,6 +51,8 @@ public class SenderApp extends Application {
     private Button selectFolderButton;
     private Button startButton;
     private Button cancelButton;
+    private Button resendButton;
+    private TextField resendField;
     private ComboBox<String> screenSelector;
     private PauseTransition autoStartTimer;
 
@@ -121,6 +127,9 @@ public class SenderApp extends Application {
         fileLabel.setTextFill(Color.LIGHTGRAY);
         fileLabel.setStyle("-fx-font-size: 14px;");
 
+        // 补发输入
+        HBox resendBox = createResendBox();
+
         // 屏幕选择器
         HBox screenBox = createScreenSelector(stage);
 
@@ -146,9 +155,30 @@ public class SenderApp extends Application {
         buttonBox.setAlignment(Pos.CENTER);
         buttonBox.getChildren().addAll(selectFileButton, selectFolderButton, startButton, cancelButton, exitButton);
 
-        panel.getChildren().addAll(statusLabel, fileLabel, screenBox, buttonBox);
+        panel.getChildren().addAll(statusLabel, fileLabel, resendBox, screenBox, buttonBox);
 
         return panel;
+    }
+
+    private HBox createResendBox() {
+        HBox box = new HBox(10);
+        box.setAlignment(Pos.CENTER);
+
+        Label label = new Label("补发帧序号(从0开始):");
+        label.setTextFill(Color.LIGHTGRAY);
+
+        resendField = new TextField();
+        resendField.setPromptText("如 0,3,5-7");
+        resendField.setPrefWidth(240);
+        resendField.setDisable(true);
+        resendField.setOnAction(e -> resendFrames());
+
+        resendButton = new Button("补发帧");
+        resendButton.setDisable(true);
+        resendButton.setOnAction(e -> resendFrames());
+
+        box.getChildren().addAll(label, resendField, resendButton);
+        return box;
     }
 
     /**
@@ -310,6 +340,61 @@ public class SenderApp extends Application {
         }
     }
 
+    private void resendFrames() {
+        int totalFrames = controller.getTotalFrames();
+        List<Integer> indices = parseFrameIndices(resendField.getText(), totalFrames);
+        if (indices.isEmpty()) {
+            statusLabel.setText("状态: 补发帧序号无效");
+            return;
+        }
+        controller.beginResend(indices);
+    }
+
+    private List<Integer> parseFrameIndices(String input, int totalFrames) {
+        if (input == null || input.isBlank() || totalFrames <= 0) {
+            return List.of();
+        }
+        String cleaned = input.trim();
+        String[] parts = cleaned.split("[,;\\s]+");
+        TreeSet<Integer> result = new TreeSet<>();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            int dashIndex = part.indexOf('-');
+            if (dashIndex > 0 && dashIndex < part.length() - 1) {
+                String left = part.substring(0, dashIndex).trim();
+                String right = part.substring(dashIndex + 1).trim();
+                Integer start = parseIndex(left);
+                Integer end = parseIndex(right);
+                if (start == null || end == null) {
+                    continue;
+                }
+                int from = Math.min(start, end);
+                int to = Math.max(start, end);
+                for (int i = from; i <= to; i++) {
+                    if (i >= 0 && i < totalFrames) {
+                        result.add(i);
+                    }
+                }
+            } else {
+                Integer index = parseIndex(part);
+                if (index != null && index >= 0 && index < totalFrames) {
+                    result.add(index);
+                }
+            }
+        }
+        return new ArrayList<>(result);
+    }
+
+    private Integer parseIndex(String token) {
+        try {
+            return Integer.parseInt(token);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     /**
      * 控制器事件监听器
      */
@@ -326,6 +411,9 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(false);
                     startButton.setDisable(true);
                     cancelButton.setDisable(true);
+                    resendButton.setDisable(true);
+                    resendField.setDisable(true);
+                    resendField.setText("");
                     statusLabel.setText("状态: 空闲");
                     fileLabel.setText("未选择文件");
                     cancelAutoStartTimer();
@@ -336,6 +424,8 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(true);
                     startButton.setDisable(true);
                     cancelButton.setDisable(true);
+                    resendButton.setDisable(true);
+                    resendField.setDisable(true);
                     cancelAutoStartTimer();
                     break;
 
@@ -344,11 +434,27 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(true);
                     startButton.setDisable(false);
                     cancelButton.setDisable(false);
+                    resendButton.setDisable(true);
+                    resendField.setDisable(true);
                     statusLabel.setText("状态: 准备完成，2秒后开始");
                     if (!controlPanelVisible) {
                         toggleControlPanel();
                     }
                     startAutoStartTimer();
+                    break;
+
+                case READY_RESEND:
+                    selectFileButton.setDisable(true);
+                    selectFolderButton.setDisable(true);
+                    startButton.setDisable(false);
+                    cancelButton.setDisable(false);
+                    resendButton.setDisable(false);
+                    resendField.setDisable(false);
+                    statusLabel.setText("状态: 传输完成，可补发");
+                    if (!controlPanelVisible) {
+                        toggleControlPanel();
+                    }
+                    cancelAutoStartTimer();
                     break;
 
                 case SENDING_START:
@@ -358,6 +464,8 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(true);
                     startButton.setDisable(true);
                     cancelButton.setDisable(false);
+                    resendButton.setDisable(true);
+                    resendField.setDisable(true);
                     cancelAutoStartTimer();
                     // 自动隐藏控制面板，显示迷你进度条
                     if (controlPanelVisible) {
@@ -392,7 +500,6 @@ public class SenderApp extends Application {
 
         @Override
         public void onSendComplete() {
-            fileLabel.setText("未选择文件");
             if (!controlPanelVisible) {
                 toggleControlPanel();
             }
@@ -400,7 +507,7 @@ public class SenderApp extends Application {
 
         @Override
         public void onError(String error) {
-            statusLabel.setText("状态: 错误");
+            statusLabel.setText("状态: " + error);
         }
     }
 
