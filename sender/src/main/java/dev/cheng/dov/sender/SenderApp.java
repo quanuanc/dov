@@ -5,8 +5,10 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.image.Image;
@@ -17,6 +19,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 import java.io.File;
@@ -39,6 +42,7 @@ public class SenderApp extends Application {
     private Label progressLabel;
     private Button selectFileButton;
     private Button cancelButton;
+    private ComboBox<String> screenSelector;
 
     // 迷你进度条（显示在底部安全边距区域）
     private HBox miniProgressBar;
@@ -106,7 +110,7 @@ public class SenderApp extends Application {
         panel.setAlignment(Pos.CENTER);
         panel.setStyle("-fx-background-color: rgba(0, 0, 0, 0.8); -fx-background-radius: 10;");
         panel.setMaxWidth(600);
-        panel.setMaxHeight(200);
+        panel.setMaxHeight(250);
 
         // 状态标签
         statusLabel = new Label("状态: 空闲");
@@ -128,6 +132,9 @@ public class SenderApp extends Application {
         progressLabel.setTextFill(Color.LIGHTGRAY);
         progressLabel.setStyle("-fx-font-size: 12px;");
 
+        // 屏幕选择器
+        HBox screenBox = createScreenSelector(stage);
+
         // 按钮
         selectFileButton = new Button("选择文件");
         selectFileButton.setOnAction(e -> selectFile(stage));
@@ -143,9 +150,96 @@ public class SenderApp extends Application {
         buttonBox.setAlignment(Pos.CENTER);
         buttonBox.getChildren().addAll(selectFileButton, cancelButton, exitButton);
 
-        panel.getChildren().addAll(statusLabel, fileLabel, progressBar, progressLabel, buttonBox);
+        panel.getChildren().addAll(statusLabel, fileLabel, progressBar, progressLabel, screenBox, buttonBox);
 
         return panel;
+    }
+
+    /**
+     * 创建屏幕选择器
+     */
+    private HBox createScreenSelector(Stage stage) {
+        HBox box = new HBox(10);
+        box.setAlignment(Pos.CENTER);
+
+        Label label = new Label("显示屏幕:");
+        label.setTextFill(Color.WHITE);
+
+        screenSelector = new ComboBox<>();
+        refreshScreenList();
+
+        Button refreshButton = new Button("刷新");
+        refreshButton.setOnAction(e -> refreshScreenList());
+
+        Button moveButton = new Button("移至此屏幕");
+        moveButton.setOnAction(e -> moveToSelectedScreen(stage));
+
+        box.getChildren().addAll(label, screenSelector, refreshButton, moveButton);
+        return box;
+    }
+
+    /**
+     * 刷新屏幕列表
+     */
+    private void refreshScreenList() {
+        screenSelector.getItems().clear();
+        var screens = Screen.getScreens();
+        for (int i = 0; i < screens.size(); i++) {
+            Screen screen = screens.get(i);
+            Rectangle2D bounds = screen.getBounds();
+            String name = String.format("屏幕 %d (%dx%d)", i + 1, (int) bounds.getWidth(), (int) bounds.getHeight());
+            screenSelector.getItems().add(name);
+        }
+        // 默认选择当前窗口所在的屏幕
+        Screen currentScreen = getCurrentScreen();
+        int index = screens.indexOf(currentScreen);
+        if (index >= 0) {
+            screenSelector.getSelectionModel().select(index);
+        } else if (!screens.isEmpty()) {
+            screenSelector.getSelectionModel().select(0);
+        }
+    }
+
+    /**
+     * 获取当前窗口所在的屏幕
+     */
+    private Screen getCurrentScreen() {
+        double x = primaryStage.getX() + primaryStage.getWidth() / 2;
+        double y = primaryStage.getY() + primaryStage.getHeight() / 2;
+        for (Screen screen : Screen.getScreens()) {
+            if (screen.getBounds().contains(x, y)) {
+                return screen;
+            }
+        }
+        return Screen.getPrimary();
+    }
+
+    /**
+     * 移动窗口到选中的屏幕并全屏
+     */
+    private void moveToSelectedScreen(Stage stage) {
+        int selectedIndex = screenSelector.getSelectionModel().getSelectedIndex();
+        if (selectedIndex < 0) {
+            return;
+        }
+
+        var screens = Screen.getScreens();
+        if (selectedIndex >= screens.size()) {
+            return;
+        }
+
+        Screen targetScreen = screens.get(selectedIndex);
+        Rectangle2D bounds = targetScreen.getBounds();
+
+        // 先退出全屏
+        stage.setFullScreen(false);
+
+        // 移动窗口到目标屏幕中心
+        stage.setX(bounds.getMinX() + (bounds.getWidth() - stage.getWidth()) / 2);
+        stage.setY(bounds.getMinY() + (bounds.getHeight() - stage.getHeight()) / 2);
+
+        // 重新进入全屏
+        Platform.runLater(() -> stage.setFullScreen(true));
     }
 
     /**
