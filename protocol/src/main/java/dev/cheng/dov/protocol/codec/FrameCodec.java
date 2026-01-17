@@ -93,13 +93,14 @@ public class FrameCodec {
      * @param fileSize    文件大小
      * @param totalFrames 总帧数
      * @param sha256      文件 SHA-256 校验和
+     * @param flags       传输标记
      */
-    public BufferedImage encodeStartFrame(String fileName, long fileSize, int totalFrames, byte[] sha256) {
+    public BufferedImage encodeStartFrame(String fileName, long fileSize, int totalFrames, byte[] sha256, int flags) {
         BufferedImage image = createBaseFrame();
 
         // 构建 START 帧数据
         byte[] fileNameBytes = fileName.getBytes(StandardCharsets.UTF_8);
-        int dataLength = 1 + fileNameBytes.length + 8 + 4 + 32;
+        int dataLength = 1 + fileNameBytes.length + 8 + 4 + 32 + Constants.START_PARAMS_BYTES;
 
         ByteBuffer buffer = ByteBuffer.allocate(dataLength);
         buffer.put((byte) fileNameBytes.length);
@@ -107,6 +108,7 @@ public class FrameCodec {
         buffer.putLong(fileSize);
         buffer.putInt(totalFrames);
         buffer.put(sha256);
+        buffer.putInt(flags);
 
         byte[] data = buffer.array();
 

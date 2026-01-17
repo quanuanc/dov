@@ -20,6 +20,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.Cursor;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
@@ -44,6 +45,7 @@ public class SenderApp extends Application {
     private ProgressBar progressBar;
     private Label progressLabel;
     private Button selectFileButton;
+    private Button selectFolderButton;
     private Button startButton;
     private Button cancelButton;
     private ComboBox<String> screenSelector;
@@ -145,6 +147,9 @@ public class SenderApp extends Application {
         selectFileButton = new Button("选择文件");
         selectFileButton.setOnAction(e -> selectFile(stage));
 
+        selectFolderButton = new Button("选择文件夹");
+        selectFolderButton.setOnAction(e -> selectFolder(stage));
+
         startButton = new Button("开始发送");
         startButton.setOnAction(e -> controller.beginSending());
         startButton.setDisable(true);
@@ -158,7 +163,7 @@ public class SenderApp extends Application {
 
         HBox buttonBox = new HBox(10);
         buttonBox.setAlignment(Pos.CENTER);
-        buttonBox.getChildren().addAll(selectFileButton, startButton, cancelButton, exitButton);
+        buttonBox.getChildren().addAll(selectFileButton, selectFolderButton, startButton, cancelButton, exitButton);
 
         panel.getChildren().addAll(statusLabel, fileLabel, progressBar, progressLabel, screenBox, buttonBox);
 
@@ -300,6 +305,18 @@ public class SenderApp extends Application {
     }
 
     /**
+     * 选择文件夹
+     */
+    private void selectFolder(Stage stage) {
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle("选择要发送的文件夹");
+        File directory = chooser.showDialog(stage);
+        if (directory != null) {
+            controller.selectDirectory(directory.toPath());
+        }
+    }
+
+    /**
      * 退出应用
      */
     private void exitApp() {
@@ -351,6 +368,7 @@ public class SenderApp extends Application {
             switch (state) {
                 case IDLE:
                     selectFileButton.setDisable(false);
+                    selectFolderButton.setDisable(false);
                     startButton.setDisable(true);
                     cancelButton.setDisable(true);
                     progressBar.setVisible(false);
@@ -360,6 +378,7 @@ public class SenderApp extends Application {
 
                 case PREPARING:
                     selectFileButton.setDisable(true);
+                    selectFolderButton.setDisable(true);
                     startButton.setDisable(true);
                     cancelButton.setDisable(true);
                     progressBar.setVisible(true);
@@ -368,6 +387,7 @@ public class SenderApp extends Application {
 
                 case READY:
                     selectFileButton.setDisable(true);
+                    selectFolderButton.setDisable(true);
                     startButton.setDisable(false);
                     cancelButton.setDisable(false);
                     progressBar.setVisible(true);
@@ -383,6 +403,7 @@ public class SenderApp extends Application {
                 case SENDING_DATA:
                 case SENDING_EOF:
                     selectFileButton.setDisable(true);
+                    selectFolderButton.setDisable(true);
                     startButton.setDisable(true);
                     cancelButton.setDisable(false);
                     progressBar.setVisible(true);

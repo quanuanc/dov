@@ -1,5 +1,6 @@
 package dev.cheng.dov.sender;
 
+import dev.cheng.dov.protocol.Constants;
 import dev.cheng.dov.protocol.codec.FrameCodec;
 import dev.cheng.dov.protocol.file.FileChunker;
 import javafx.embed.swing.SwingFXUtils;
@@ -7,8 +8,16 @@ import javafx.scene.image.Image;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * 帧渲染器
@@ -30,6 +39,8 @@ public class FrameRenderer {
     private long fileSize;
     private int totalFrames;
     private byte[] sha256;
+    private boolean directoryTransfer;
+    private Path tempArchivePath;
 
     // 缓存当前帧（避免重复生成）
     private int cachedFrameIndex = -1;
@@ -58,11 +69,39 @@ public class FrameRenderer {
      * @param listener 进度监听器
      */
     public void prepareFile(Path filePath, PrepareListener listener) throws IOException {
+        cleanupTempArchive();
+        directoryTransfer = false;
         // 分块文件
         listener.onProgress("正在读取文件...", 0);
         FileChunker.ChunkResult result = fileChunker.chunkFile(filePath);
 
         this.fileName = result.getFileName();
+        this.fileSize = result.getFileSize();
+        this.totalFrames = result.getTotalFrames();
+        this.sha256 = result.getSha256();
+        this.chunks = result.getChunks();
+
+        listener.onProgress("准备完成", 100);
+        listener.onComplete();
+    }
+
+    /**
+     * 准备文件夹传输
+     *
+     * @param directoryPath 文件夹路径
+     * @param listener      进度监听器
+     */
+    public void prepareDirectory(Path directoryPath, PrepareListener listener) throws IOException {
+        cleanupTempArchive();
+        directoryTransfer = true;
+
+        listener.onProgress("正在压缩文件夹...", 0);
+        tempArchivePath = createZipFromDirectory(directoryPath);
+
+        listener.onProgress("正在读取压缩包...", 10);
+        FileChunker.ChunkResult result = fileChunker.chunkFile(tempArchivePath);
+
+        this.fileName = directoryPath.getFileName().toString();
         this.fileSize = result.getFileSize();
         this.totalFrames = result.getTotalFrames();
         this.sha256 = result.getSha256();
@@ -86,7 +125,8 @@ public class FrameRenderer {
         if (fileName == null) {
             return null;
         }
-        BufferedImage image = frameCodec.encodeStartFrame(fileName, fileSize, totalFrames, sha256);
+        int flags = directoryTransfer ? Constants.START_FLAG_DIRECTORY : 0;
+        BufferedImage image = frameCodec.encodeStartFrame(fileName, fileSize, totalFrames, sha256, flags);
         return SwingFXUtils.toFXImage(image, null);
     }
 
@@ -153,6 +193,49 @@ public class FrameRenderer {
         this.sha256 = null;
         this.cachedFrameIndex = -1;
         this.cachedDataFrame = null;
+        this.directoryTransfer = false;
+        cleanupTempArchive();
+    }
+
+    private void cleanupTempArchive() {
+        if (tempArchivePath != null) {
+            try {
+                Files.deleteIfExists(tempArchivePath);
+            } catch (IOException ignored) {
+                // ignore
+            }
+            tempArchivePath = null;
+        }
+    }
+
+    private Path createZipFromDirectory(Path directoryPath) throws IOException {
+        Path zipPath = Files.createTempFile("dov-", ".zip");
+        try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath, StandardOpenOption.WRITE))) {
+            Path root = directoryPath.toAbsolutePath().normalize();
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    if (!root.equals(dir)) {
+                        String entryName = root.relativize(dir).toString().replace('\\', '/') + "/";
+                        zos.putNextEntry(new ZipEntry(entryName));
+                        zos.closeEntry();
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    String entryName = root.relativize(file).toString().replace('\\', '/');
+                    zos.putNextEntry(new ZipEntry(entryName));
+                    try (InputStream is = Files.newInputStream(file)) {
+                        is.transferTo(zos);
+                    }
+                    zos.closeEntry();
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        }
+        return zipPath;
     }
 
     /**

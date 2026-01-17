@@ -84,46 +84,23 @@ public class SenderController {
         stopFrameTask();
 
         // 在后台线程准备文件
-        Thread prepareThread = new Thread(() -> {
-            try {
-                frameRenderer.prepareFile(filePath, new FrameRenderer.PrepareListener() {
-                    @Override
-                    public void onProgress(String message, int percent) {
-                        Platform.runLater(() -> {
-                            if (stateListener != null) {
-                                stateListener.onPrepareProgress(message, percent);
-                            }
-                        });
-                    }
+        startPrepareThread(() -> frameRenderer.prepareFile(filePath, createPrepareListener()),
+                "读取文件失败");
+    }
 
-                    @Override
-                    public void onComplete() {
-                        Platform.runLater(() -> enterReadyState());
-                    }
+    /**
+     * 选择文件夹并开始准备
+     */
+    public void selectDirectory(Path directoryPath) {
+        if (state != SenderState.IDLE) {
+            return;
+        }
 
-                    @Override
-                    public void onError(String error) {
-                        Platform.runLater(() -> {
-                            if (stateListener != null) {
-                                stateListener.onError(error);
-                            }
-                            setState(SenderState.IDLE);
-                            startIdleLoop();
-                        });
-                    }
-                });
-            } catch (IOException e) {
-                Platform.runLater(() -> {
-                    if (stateListener != null) {
-                        stateListener.onError("读取文件失败: " + e.getMessage());
-                    }
-                    setState(SenderState.IDLE);
-                    startIdleLoop();
-                });
-            }
-        }, "PrepareThread");
-        prepareThread.setDaemon(true);
-        prepareThread.start();
+        setState(SenderState.PREPARING);
+        stopFrameTask();
+
+        startPrepareThread(() -> frameRenderer.prepareDirectory(directoryPath, createPrepareListener()),
+                "压缩文件夹失败");
     }
 
     /**
@@ -303,6 +280,57 @@ public class SenderController {
                 stateListener.onStateChanged(newState);
             }
         });
+    }
+
+    private void startPrepareThread(PrepareTask task, String errorPrefix) {
+        Thread prepareThread = new Thread(() -> {
+            try {
+                task.run();
+            } catch (IOException e) {
+                Platform.runLater(() -> {
+                    if (stateListener != null) {
+                        stateListener.onError(errorPrefix + ": " + e.getMessage());
+                    }
+                    setState(SenderState.IDLE);
+                    startIdleLoop();
+                });
+            }
+        }, "PrepareThread");
+        prepareThread.setDaemon(true);
+        prepareThread.start();
+    }
+
+    private FrameRenderer.PrepareListener createPrepareListener() {
+        return new FrameRenderer.PrepareListener() {
+            @Override
+            public void onProgress(String message, int percent) {
+                Platform.runLater(() -> {
+                    if (stateListener != null) {
+                        stateListener.onPrepareProgress(message, percent);
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete() {
+                Platform.runLater(() -> enterReadyState());
+            }
+
+            @Override
+            public void onError(String error) {
+                Platform.runLater(() -> {
+                    if (stateListener != null) {
+                        stateListener.onError(error);
+                    }
+                    setState(SenderState.IDLE);
+                    startIdleLoop();
+                });
+            }
+        };
+    }
+
+    private interface PrepareTask {
+        void run() throws IOException;
     }
 
     /**

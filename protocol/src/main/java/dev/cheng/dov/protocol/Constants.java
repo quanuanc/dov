@@ -52,6 +52,8 @@ public final class Constants {
 
     // === 协议常量 ===
     public static final byte[] MAGIC = {0x44, 0x56};  // "DV"
+    public static final int START_PARAMS_BYTES = 4;   // START 帧参数长度
+    public static final int START_FLAG_DIRECTORY = 0x01; // 发送目录标记
 
     // === 发送参数 ===
     public static final int START_REPEAT = 5;         // START 帧重复次数

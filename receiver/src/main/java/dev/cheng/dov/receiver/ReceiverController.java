@@ -7,6 +7,7 @@ import dev.cheng.dov.protocol.frame.FrameType;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -22,6 +23,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Receiver 控制器
@@ -51,6 +54,8 @@ public class ReceiverController {
     private long fileSize;
     private int totalFrames;
     private byte[] expectedSha256;
+    private int transferFlags;
+    private boolean directoryTransfer;
     private boolean[] receivedFrames;
     private Map<Integer, byte[]> frameDataMap;
     private int receivedCount;
@@ -290,12 +295,22 @@ public class ReceiverController {
 
         Path outputFile;
         try {
-            outputFile = fileAssembler.assemble(saveDirectory, fileName, totalFrames, frameDataMap,
-                    (current, total) -> {
-                        if (listener != null) {
-                            listener.onProgress(current, total);
-                        }
-                    });
+            if (directoryTransfer) {
+                Path archivePath = saveDirectory.resolve(fileName + ".zip");
+                outputFile = fileAssembler.assemble(archivePath, totalFrames, frameDataMap,
+                        (current, total) -> {
+                            if (listener != null) {
+                                listener.onProgress(current, total);
+                            }
+                        });
+            } else {
+                outputFile = fileAssembler.assemble(saveDirectory, fileName, totalFrames, frameDataMap,
+                        (current, total) -> {
+                            if (listener != null) {
+                                listener.onProgress(current, total);
+                            }
+                        });
+            }
         } catch (IOException e) {
             notifyError("写入文件失败: " + e.getMessage());
             setState(ReceiverState.ERROR, "写入失败");
@@ -318,9 +333,24 @@ public class ReceiverController {
             return;
         }
 
+        Path finalOutput = outputFile;
+        if (directoryTransfer) {
+            try {
+                Path targetDir = saveDirectory.resolve(fileName);
+                extractZip(outputFile, targetDir);
+                Files.deleteIfExists(outputFile);
+                finalOutput = targetDir;
+            } catch (IOException e) {
+                notifyError("解压失败: " + e.getMessage());
+                setState(ReceiverState.ERROR, "解压失败");
+                clearFrameBuffers();
+                return;
+            }
+        }
+
         setState(ReceiverState.COMPLETE, "接收完成: " + fileName);
         if (listener != null) {
-            listener.onCompleted(outputFile);
+            listener.onCompleted(finalOutput);
         }
         clearFrameBuffers();
     }
@@ -343,6 +373,8 @@ public class ReceiverController {
         this.fileSize = info.fileSize();
         this.totalFrames = info.totalFrames();
         this.expectedSha256 = info.sha256();
+        this.transferFlags = info.flags();
+        this.directoryTransfer = (transferFlags & Constants.START_FLAG_DIRECTORY) != 0;
         this.receivedFrames = new boolean[totalFrames];
         this.frameDataMap = new HashMap<>();
         this.receivedCount = 0;
@@ -361,7 +393,8 @@ public class ReceiverController {
                 && fileName.equals(info.fileName())
                 && fileSize == info.fileSize()
                 && totalFrames == info.totalFrames()
-                && Arrays.equals(expectedSha256, info.sha256());
+                && Arrays.equals(expectedSha256, info.sha256())
+                && transferFlags == info.flags();
     }
 
     private void resetReceivingData() {
@@ -369,6 +402,8 @@ public class ReceiverController {
         fileSize = 0;
         totalFrames = 0;
         expectedSha256 = null;
+        transferFlags = 0;
+        directoryTransfer = false;
         clearFrameBuffers();
         if (listener != null) {
             listener.onFileInfo(null, 0, 0);
@@ -383,7 +418,8 @@ public class ReceiverController {
     }
 
     private StartFrameInfo parseStartFrame(byte[] data) {
-        if (data == null || data.length < 1 + 8 + 4 + 32) {
+        int baseLength = 1 + 8 + 4 + 32;
+        if (data == null || data.length < baseLength) {
             return null;
         }
 
@@ -399,8 +435,12 @@ public class ReceiverController {
         int frames = buffer.getInt();
         byte[] sha = new byte[32];
         buffer.get(sha);
+        int flags = 0;
+        if (buffer.remaining() >= Constants.START_PARAMS_BYTES) {
+            flags = buffer.getInt();
+        }
 
-        return new StartFrameInfo(name, size, frames, sha);
+        return new StartFrameInfo(name, size, frames, sha, flags);
     }
 
     private EofFrameInfo parseEofFrame(byte[] data) {
@@ -515,9 +555,34 @@ public class ReceiverController {
         void onError(String message);
     }
 
-    private record StartFrameInfo(String fileName, long fileSize, int totalFrames, byte[] sha256) {
+    private record StartFrameInfo(String fileName, long fileSize, int totalFrames, byte[] sha256, int flags) {
     }
 
     private record EofFrameInfo(int totalFrames, byte[] sha256) {
+    }
+
+    private void extractZip(Path zipFile, Path targetDir) throws IOException {
+        Files.createDirectories(targetDir);
+        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                Path entryPath = targetDir.resolve(entry.getName()).normalize();
+                if (!entryPath.startsWith(targetDir)) {
+                    throw new IOException("非法压缩条目: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(entryPath);
+                } else {
+                    Path parent = entryPath.getParent();
+                    if (parent != null) {
+                        Files.createDirectories(parent);
+                    }
+                    try (OutputStream os = Files.newOutputStream(entryPath)) {
+                        zis.transferTo(os);
+                    }
+                }
+                zis.closeEntry();
+            }
+        }
     }
 }

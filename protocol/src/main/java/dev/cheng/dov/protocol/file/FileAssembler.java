@@ -29,6 +29,24 @@ public class FileAssembler {
                          Map<Integer, byte[]> frameData, ProgressListener listener) throws IOException {
         Files.createDirectories(outputDir);
         Path outputFile = outputDir.resolve(fileName);
+        return assemble(outputFile, totalFrames, frameData, listener);
+    }
+
+    /**
+     * 组装文件到指定路径
+     *
+     * @param outputFile  输出文件路径
+     * @param totalFrames 总帧数
+     * @param frameData   帧数据映射
+     * @param listener    进度监听器
+     * @return 输出文件路径
+     */
+    public Path assemble(Path outputFile, int totalFrames,
+                         Map<Integer, byte[]> frameData, ProgressListener listener) throws IOException {
+        Path parent = outputFile.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
 
         try (OutputStream os = Files.newOutputStream(outputFile)) {
             for (int i = 0; i < totalFrames; i++) {
