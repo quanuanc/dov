@@ -57,7 +57,7 @@ public final class Constants {
 
     // === 发送参数 ===
     public static final int START_REPEAT = 5;         // START 帧重复次数
-    public static final int DATA_REPEAT = 3;          // DATA 帧重复次数
+    public static final int DATA_REPEAT = 1;          // DATA 帧重复次数
     public static final int EOF_REPEAT = 5;           // EOF 帧重复次数
     public static final int FRAME_INTERVAL_MS = 50;   // 帧间隔 (20fps)
     public static final int IDLE_INTERVAL_MS = 200;   // IDLE 帧间隔

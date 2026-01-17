@@ -38,6 +38,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
     private final JLabel fileLabel = new JLabel("当前文件: -");
     private final JLabel sizeLabel = new JLabel("文件大小: -");
     private final JLabel frameLabel = new JLabel("帧: 0/0  丢失: 0");
+    private final JLabel rateLabel = new JLabel("速率: -");
+    private final JLabel etaLabel = new JLabel("剩余时间: -");
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JTextField savePathField = new JTextField();
     private final JButton changePathButton = new JButton("更改...");
@@ -46,6 +48,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
     private int missingCount = 0;
     private int currentTotalFrames = 0;
     private int currentReceivedFrames = 0;
+    private long currentFileSize = 0;
+    private double lastRate = -1;
 
     public MainWindow(ReceiverController controller) {
         this.controller = controller;
@@ -120,6 +124,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
         panel.add(fileInfoPanel);
         panel.add(progressBar);
         panel.add(frameLabel);
+        panel.add(rateLabel);
+        panel.add(etaLabel);
         panel.add(savePanel);
         panel.add(buttonPanel);
 
@@ -181,10 +187,14 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
             missingCount = 0;
             currentTotalFrames = totalFrames;
             currentReceivedFrames = 0;
+            currentFileSize = fileSize;
+            lastRate = -1;
             if (fileName == null || fileName.isBlank()) {
                 fileLabel.setText("当前文件: -");
                 sizeLabel.setText("文件大小: -");
                 frameLabel.setText("帧: 0/0  丢失: 0");
+                rateLabel.setText("速率: -");
+                etaLabel.setText("剩余时间: -");
                 progressBar.setValue(0);
                 progressBar.setString("0%");
                 return;
@@ -192,6 +202,8 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
             fileLabel.setText("当前文件: " + fileName);
             sizeLabel.setText("文件大小: " + formatSize(fileSize));
             frameLabel.setText(String.format("帧: 0/%d  丢失: 0", totalFrames));
+            rateLabel.setText("速率: 0 B/s");
+            etaLabel.setText("剩余时间: -");
             progressBar.setValue(0);
             progressBar.setString("0%");
         });
@@ -206,6 +218,21 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
             progressBar.setValue(percent);
             progressBar.setString(percent + "%");
             frameLabel.setText(String.format("帧: %d/%d  丢失: %d", receivedFrames, totalFrames, missingCount));
+            updateEta();
+        });
+    }
+
+    @Override
+    public void onTransferRate(double bytesPerSecond) {
+        runOnEdt(() -> {
+            if (bytesPerSecond < 0) {
+                rateLabel.setText("速率: -");
+                lastRate = -1;
+            } else {
+                rateLabel.setText("速率: " + formatRate(bytesPerSecond));
+                lastRate = bytesPerSecond;
+            }
+            updateEta();
         });
     }
 
@@ -247,5 +274,47 @@ public class MainWindow extends JFrame implements ReceiverController.Listener {
             unitIndex++;
         }
         return new DecimalFormat("0.##").format(bytes) + " " + units[unitIndex];
+    }
+
+    private String formatRate(double bytesPerSecond) {
+        if (bytesPerSecond <= 0) {
+            return "0 B/s";
+        }
+        double value = bytesPerSecond;
+        String[] units = {"B/s", "KB/s", "MB/s", "GB/s"};
+        int unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex++;
+        }
+        return new DecimalFormat("0.##").format(value) + " " + units[unitIndex];
+    }
+
+    private void updateEta() {
+        if (lastRate <= 0 || currentFileSize <= 0 || currentTotalFrames <= 0) {
+            etaLabel.setText("剩余时间: -");
+            return;
+        }
+        double ratio = currentReceivedFrames / (double) currentTotalFrames;
+        long receivedBytes = Math.round(currentFileSize * Math.min(Math.max(ratio, 0.0), 1.0));
+        long remainingBytes = Math.max(currentFileSize - receivedBytes, 0);
+        long seconds = (long) Math.ceil(remainingBytes / lastRate);
+        etaLabel.setText("剩余时间: " + formatDuration(seconds));
+    }
+
+    private String formatDuration(long seconds) {
+        if (seconds <= 0) {
+            return "0s";
+        }
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        long secs = seconds % 60;
+        if (hours > 0) {
+            return String.format("%dh %dm %ds", hours, minutes, secs);
+        }
+        if (minutes > 0) {
+            return String.format("%dm %ds", minutes, secs);
+        }
+        return String.format("%ds", secs);
     }
 }

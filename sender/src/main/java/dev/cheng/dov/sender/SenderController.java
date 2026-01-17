@@ -354,6 +354,7 @@ public class SenderController {
         return frameRenderer.getFileSize();
     }
 
+
     /**
      * 状态监听器接口
      */

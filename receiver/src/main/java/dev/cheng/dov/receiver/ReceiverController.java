@@ -59,6 +59,9 @@ public class ReceiverController {
     private boolean[] receivedFrames;
     private Map<Integer, byte[]> frameDataMap;
     private int receivedCount;
+    private long receivedBytes;
+    private long transferStartTime;
+    private long lastRateUpdateTime;
 
     private long lastFrameTime = 0;
     private long lastValidFrameTime = 0;
@@ -258,10 +261,12 @@ public class ReceiverController {
         frameDataMap.put(index, payload);
         receivedFrames[index] = true;
         receivedCount++;
+        receivedBytes += payload.length;
         lastFrameTime = now;
 
         if (listener != null) {
             listener.onProgress(receivedCount, totalFrames);
+            updateTransferRate(now, false);
         }
     }
 
@@ -378,11 +383,15 @@ public class ReceiverController {
         this.receivedFrames = new boolean[totalFrames];
         this.frameDataMap = new HashMap<>();
         this.receivedCount = 0;
+        this.receivedBytes = 0;
+        this.transferStartTime = System.currentTimeMillis();
+        this.lastRateUpdateTime = transferStartTime;
         this.lastFrameTime = System.currentTimeMillis();
 
         if (listener != null) {
             listener.onFileInfo(fileName, fileSize, totalFrames);
             listener.onProgress(0, totalFrames);
+            listener.onTransferRate(0);
         }
 
         setState(ReceiverState.RECEIVING, "开始接收: " + fileName);
@@ -404,10 +413,14 @@ public class ReceiverController {
         expectedSha256 = null;
         transferFlags = 0;
         directoryTransfer = false;
+        receivedBytes = 0;
+        transferStartTime = 0;
+        lastRateUpdateTime = 0;
         clearFrameBuffers();
         if (listener != null) {
             listener.onFileInfo(null, 0, 0);
             listener.onProgress(0, 0);
+            listener.onTransferRate(-1);
         }
     }
 
@@ -474,6 +487,9 @@ public class ReceiverController {
         this.state = newState;
         if (listener != null) {
             listener.onStateChanged(newState, message);
+            if (newState != ReceiverState.RECEIVING) {
+                listener.onTransferRate(-1);
+            }
         }
     }
 
@@ -548,6 +564,8 @@ public class ReceiverController {
 
         void onProgress(int receivedFrames, int totalFrames);
 
+        void onTransferRate(double bytesPerSecond);
+
         void onMissingFrames(List<Integer> missingFrames);
 
         void onCompleted(Path outputFile);
@@ -584,5 +602,18 @@ public class ReceiverController {
                 zis.closeEntry();
             }
         }
+    }
+
+    private void updateTransferRate(long now, boolean force) {
+        if (listener == null || transferStartTime <= 0) {
+            return;
+        }
+        if (!force && now - lastRateUpdateTime < 500) {
+            return;
+        }
+        long elapsedMs = Math.max(now - transferStartTime, 1);
+        double rate = receivedBytes * 1000.0 / elapsedMs;
+        lastRateUpdateTime = now;
+        listener.onTransferRate(rate);
     }
 }

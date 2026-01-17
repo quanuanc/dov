@@ -3,6 +3,7 @@ package dev.cheng.dov.sender;
 import dev.cheng.dov.protocol.Constants;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.animation.PauseTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
@@ -10,7 +11,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.control.ProgressBar;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
@@ -24,6 +24,7 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -42,18 +43,12 @@ public class SenderApp extends Application {
     private VBox controlPanel;
     private Label statusLabel;
     private Label fileLabel;
-    private ProgressBar progressBar;
-    private Label progressLabel;
     private Button selectFileButton;
     private Button selectFolderButton;
     private Button startButton;
     private Button cancelButton;
     private ComboBox<String> screenSelector;
-
-    // 迷你进度条（显示在底部安全边距区域）
-    private HBox miniProgressBar;
-    private ProgressBar miniProgress;
-    private Label miniStatusLabel;
+    private PauseTransition autoStartTimer;
 
     private boolean controlPanelVisible = true;
 
@@ -72,14 +67,10 @@ public class SenderApp extends Application {
         // 创建控制面板
         controlPanel = createControlPanel(primaryStage);
 
-        // 创建迷你进度条
-        miniProgressBar = createMiniProgressBar();
-
         // 根布局
         StackPane root = new StackPane();
-        root.getChildren().addAll(frameView, miniProgressBar, controlPanel);
+        root.getChildren().addAll(frameView, controlPanel);
         StackPane.setAlignment(controlPanel, Pos.BOTTOM_CENTER);
-        StackPane.setAlignment(miniProgressBar, Pos.BOTTOM_CENTER);
 
         // 创建场景
         scene = new Scene(root, Constants.FRAME_WIDTH, Constants.FRAME_HEIGHT);
@@ -130,16 +121,6 @@ public class SenderApp extends Application {
         fileLabel.setTextFill(Color.LIGHTGRAY);
         fileLabel.setStyle("-fx-font-size: 14px;");
 
-        // 进度条
-        progressBar = new ProgressBar(0);
-        progressBar.setPrefWidth(500);
-        progressBar.setVisible(false);
-
-        // 进度标签
-        progressLabel = new Label("");
-        progressLabel.setTextFill(Color.LIGHTGRAY);
-        progressLabel.setStyle("-fx-font-size: 12px;");
-
         // 屏幕选择器
         HBox screenBox = createScreenSelector(stage);
 
@@ -165,7 +146,7 @@ public class SenderApp extends Application {
         buttonBox.setAlignment(Pos.CENTER);
         buttonBox.getChildren().addAll(selectFileButton, selectFolderButton, startButton, cancelButton, exitButton);
 
-        panel.getChildren().addAll(statusLabel, fileLabel, progressBar, progressLabel, screenBox, buttonBox);
+        panel.getChildren().addAll(statusLabel, fileLabel, screenBox, buttonBox);
 
         return panel;
     }
@@ -258,31 +239,6 @@ public class SenderApp extends Application {
     }
 
     /**
-     * 创建迷你进度条（显示在底部安全边距区域）
-     */
-    private HBox createMiniProgressBar() {
-        HBox bar = new HBox(10);
-        bar.setAlignment(Pos.CENTER_LEFT);
-        bar.setPadding(new Insets(0, 16, 0, 16));
-        bar.setPrefHeight(16);
-        bar.setMaxHeight(16);
-        bar.setStyle("-fx-background-color: rgba(0, 0, 0, 0.8);");
-
-        miniProgress = new ProgressBar(0);
-        miniProgress.setPrefWidth(300);
-        miniProgress.setPrefHeight(12);
-
-        miniStatusLabel = new Label("");
-        miniStatusLabel.setTextFill(Color.WHITE);
-        miniStatusLabel.setStyle("-fx-font-size: 11px;");
-
-        bar.getChildren().addAll(miniProgress, miniStatusLabel);
-        bar.setVisible(false);
-
-        return bar;
-    }
-
-    /**
      * 切换控制面板显示
      */
     private void toggleControlPanel() {
@@ -363,7 +319,6 @@ public class SenderApp extends Application {
         public void onStateChanged(SenderState state) {
             statusLabel.setText("状态: " + state.getDescription());
             updateCursor(state);
-            progressLabel.setTextFill(Color.LIGHTGRAY);
 
             switch (state) {
                 case IDLE:
@@ -371,9 +326,9 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(false);
                     startButton.setDisable(true);
                     cancelButton.setDisable(true);
-                    progressBar.setVisible(false);
-                    progressLabel.setText("");
-                    miniProgressBar.setVisible(false);
+                    statusLabel.setText("状态: 空闲");
+                    fileLabel.setText("未选择文件");
+                    cancelAutoStartTimer();
                     break;
 
                 case PREPARING:
@@ -381,8 +336,7 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(true);
                     startButton.setDisable(true);
                     cancelButton.setDisable(true);
-                    progressBar.setVisible(true);
-                    progressBar.setProgress(0);
+                    cancelAutoStartTimer();
                     break;
 
                 case READY:
@@ -390,13 +344,11 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(true);
                     startButton.setDisable(false);
                     cancelButton.setDisable(false);
-                    progressBar.setVisible(true);
-                    progressBar.setProgress(1);
-                    progressLabel.setText("准备完成，等待开始");
-                    miniProgressBar.setVisible(false);
+                    statusLabel.setText("状态: 准备完成，2秒后开始");
                     if (!controlPanelVisible) {
                         toggleControlPanel();
                     }
+                    startAutoStartTimer();
                     break;
 
                 case SENDING_START:
@@ -406,12 +358,13 @@ public class SenderApp extends Application {
                     selectFolderButton.setDisable(true);
                     startButton.setDisable(true);
                     cancelButton.setDisable(false);
-                    progressBar.setVisible(true);
+                    cancelAutoStartTimer();
                     // 自动隐藏控制面板，显示迷你进度条
                     if (controlPanelVisible) {
                         toggleControlPanel();
                     }
-                    miniProgressBar.setVisible(true);
+                    statusLabel.setText("");
+                    fileLabel.setText("");
                     break;
             }
         }
@@ -425,9 +378,6 @@ public class SenderApp extends Application {
 
         @Override
         public void onPrepareProgress(String message, int percent) {
-            progressBar.setProgress(percent / 100.0);
-            progressLabel.setText(message);
-
             String fileName = controller.getFileName();
             long fileSize = controller.getFileSize();
             if (fileName != null) {
@@ -437,19 +387,12 @@ public class SenderApp extends Application {
 
         @Override
         public void onSendProgress(String status, int percent, int currentFrame, int totalFrames) {
-            progressBar.setProgress(percent / 100.0);
-            progressLabel.setText(status);
-            // 同步更新迷你进度条
-            miniProgress.setProgress(percent / 100.0);
-            miniStatusLabel.setText(status);
+            // 传输时不显示进度或提示
         }
 
         @Override
         public void onSendComplete() {
-            progressLabel.setText("发送完成!");
             fileLabel.setText("未选择文件");
-            // 隐藏迷你进度条，恢复控制面板
-            miniProgressBar.setVisible(false);
             if (!controlPanelVisible) {
                 toggleControlPanel();
             }
@@ -457,8 +400,21 @@ public class SenderApp extends Application {
 
         @Override
         public void onError(String error) {
-            progressLabel.setText("错误: " + error);
-            progressLabel.setTextFill(Color.RED);
+            statusLabel.setText("状态: 错误");
+        }
+    }
+
+    private void startAutoStartTimer() {
+        cancelAutoStartTimer();
+        autoStartTimer = new PauseTransition(Duration.seconds(2));
+        autoStartTimer.setOnFinished(event -> controller.beginSending());
+        autoStartTimer.playFromStart();
+    }
+
+    private void cancelAutoStartTimer() {
+        if (autoStartTimer != null) {
+            autoStartTimer.stop();
+            autoStartTimer = null;
         }
     }
 
